@@ -338,29 +338,15 @@ Once those are in place, add `Casks/bigjsonl.rb` to the tap pointing at the sign
 
 ### 2. Improved search with left-pane results list
 
-**Analysis.** The current search implementation (toolbar text field → grep/rg → jump to first match) is minimal: it shows a single result at a time and provides no way to browse across matches. The desired UX is a persistent search results pane on the left side of the window showing every matching line (line number + snippet), with click-to-navigate, similar to Xcode's find navigator or VS Code's search sidebar.
+**Status: shipped.**
 
-Several architectural constraints make this non-trivial:
+When a search returns results, the line list in the left pane is replaced by `SearchResultsView` — a scrollable list of every matching line (capped at 500) showing line number and a snippet with the matched term highlighted. Clicking a result jumps the viewport to that line. Results stay visible until the query is explicitly cleared via the × toolbar button, so the user can navigate freely between matches without re-running the search.
 
-1. **Viewport vs. results list** — The visible line buffer is a finite window around the current scroll position. Search results are potentially scattered across the entire file. Clicking a result needs to scroll the viewport to that exact line, which is already supported (the index can seek by offset).
+**Design decisions made during implementation:**
+- Drove pane switching off `searchResults.isEmpty` rather than a separate `searchActive` flag — simpler and self-consistent.
+- `clearSearch()` added to `DocumentViewModel` as a single call to reset query, results, and error state.
+- Snippet highlight uses a simple `String.range(of:options:.caseInsensitive)` scan — sufficient for the first-match highlight case; does not highlight multiple occurrences within a single line.
 
-2. **Memory** — A broad search over a multi-GB file could match thousands of lines. Each match includes line text (potentially ~100 KB per line). We need to cap results (already done: 500 limit) but also avoid loading every matching line's text eagerly into a large array.
-
-3. **UITK reconciliation** — The current layout uses `NavigationSplitView` where the primary pane is the scrollable line list and the detail pane is the line inspector. Search results need their own pane. Options:
-   - **Re-task the sidebar** — When search is active, replace the line list with a search results list; selecting a result scrolls the viewport (which becomes the detail pane).
-   - **Separate floating panel** — A `NSPanel` or SwiftUI `.popover` overlay that floats above the viewport.
-   - **Three-column layout** — Use a true `NavigationSplitView` with sidebar (results), content (line list), and detail (inspector). This is the most natural fit but the most invasive change.
-
-4. **Lazy loading of result lines** — The grep/rg subprocess returns `(lineNumber, byteOffset, lineText)` for each match. The `lineText` field already contains the full text (capped by the result limit). We can display snippets from this text directly without extra I/O. For the full syntax-highlighted view (when the user clicks a result), we read the line through the normal viewport path, tokenize it, and render it — same as any other line.
-
-**Thumbnail plan.**
-
-| Step | Work |
-|------|------|
-| 1 | Add a `searchActive` state and `searchResults: [SearchResult]` array to `DocumentViewModel`. Currently results are stored but not surfaced beyond `scrollTo(firstMatch)`. Keep the 500-match cap and async subprocess from the code review fixes.
-| 2 | Design the search results pane UI in its own SwiftUI view (`SearchResultsView`). Show line number in a gutter + a one-line snippet (trimmed to ~200 chars). Highlight the search pattern within the snippet.
-| 3 | Integrate the pane into `ContentView`'s `NavigationSplitView`. Best approach: when `searchActive`, replace the line list (`ScrollView` → `LazyVStack`) with a `List` of search results. Selecting a result calls `scrollTo(line:)` and switches back to the line list scrolled to that line, with the matched line highlighted.
-| 4 | Handle the back-navigation: after clicking a result and landing on a line, the user should be able to return to the results list without re-running the search. Keep search results cached in the view model until the query changes or is cleared.
-| 5 | Test with broad patterns (e.g., `"event"` matching most lines in a file), edge cases (no matches, exactly 500 matches, pattern with regex special chars).
-
-Down the road, the left pane could evolve into a proper sidebar with togglable modes (file outline vs. search results vs. bookmarks), but a single-purpose search results pane is the right v0.2 increment.
+**Future increments:**
+- Highlight all occurrences of the match within a snippet, not just the first.
+- The left pane could evolve into a togglable sidebar with modes: line list / search results / bookmarks.

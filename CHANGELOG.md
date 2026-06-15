@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- Search results pane in the left column — when a search returns matches, the line list is replaced by a scrollable list of results showing line number and snippet with the matched term highlighted in orange. Clicking any result jumps the viewport to that line without dismissing the results, so the user can navigate freely between matches. A × button in the toolbar clears the search and restores the line list.
+- `clearSearch()` on `DocumentViewModel` — resets query, results, and error state in one call.
+
 ## [0.1.0] — 2026-06-15
 
 ### Added
