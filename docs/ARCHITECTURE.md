@@ -255,12 +255,14 @@ class BigJSONLDocument: ReferenceFileDocument {
 - Line rows are limited to three visual lines with tail truncation so a single
   large JSON value cannot dominate the scrolling viewport
 
-#### Search panel
+#### Search
 
-- Text field at the top of the window or in a toolbar
-- On submit: shells out to grep/rg via the core library's search module
-- Shows results as a list with line numbers and a text snippet
-- Clicking a result scrolls the viewport to that line via `ScrollPosition`
+- Text field in the toolbar; on submit shells out to grep/rg via the core library's search module
+- Results (capped at 500) replace the line list in the left pane — `SearchResultsView` shows line number gutter and a snippet with the matched term highlighted in orange
+- Clicking a result jumps the viewport to that line via `ScrollPosition`; results stay visible so the user can navigate freely between matches without re-running the search
+- A × button in the toolbar clears the query and results, restoring the line list
+- Pane switching is driven off `searchResults.isEmpty` — no separate `searchActive` flag needed
+- `clearSearch()` on `DocumentViewModel` resets query, results, and error state in one call
 
 #### Line inspector
 
@@ -308,12 +310,12 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Search results are capped and asynchronously cancellable | Keeps broad searches from blocking the app or consuming memory proportional to all matches. |
 | 2026-06-15 | Scroll navigation uses bounded overlapping windows | End-of-user-scroll geometry checks enable continuous browsing while avoiding state mutation during initial SwiftUI layout. |
 | 2026-06-15 | Inspector preparation runs off the main actor and uses AppKit text rendering | Keeps selection responsive for content-heavy records while preserving selectable syntax-highlighted output. |
+| 2026-06-15 | Search results replace the line list in the left pane rather than a separate column | Avoids invasive `NavigationSplitView` restructuring; the existing two-column layout (line list + inspector) is preserved with a clean swap. |
+| 2026-06-15 | CLI formula shipped to `Sepoy-Software/tap`; Cask deferred | CLI can build without code signing. GUI Cask requires Apple Developer ID cert, CI notarization, and a signed release archive. |
 
-## TODO
+## Distribution
 
-### 1. Package for distribution through Homebrew
-
-**Status: CLI formula shipped (v0.1.0). Cask for GUI app pending.**
+### Homebrew CLI formula
 
 The CLI is available via the `Sepoy-Software/tap` Homebrew tap:
 
@@ -323,30 +325,14 @@ brew trust sepoy-software/tap
 brew install bigjsonl
 ```
 
-The formula lives at `Formula/bigjsonl.rb` in [Sepoy-Software/homebrew-tap](https://github.com/Sepoy-Software/homebrew-tap). It builds from the tagged source archive, requires Xcode 16+ at build time, and enforces the macOS 15 deployment target.
+The formula lives at `Formula/bigjsonl.rb` in [Sepoy-Software/homebrew-tap](https://github.com/Sepoy-Software/homebrew-tap). It builds from the tagged source archive (`v0.1.0`), requires Xcode 16+ at build time, and enforces the macOS 15 deployment target.
 
-**Remaining: Cask for `BigJSONLApp`.**
+### Homebrew Cask (pending)
 
 The GUI app requires a signed and notarized `.app` bundle to avoid Gatekeeper dialogs on first launch. Prerequisites before publishing the Cask:
+
 - Apple Developer account and a valid Developer ID Application certificate
 - A CI signing and notarization step (e.g., GitHub Actions with `xcrun notarytool`)
 - A versioned `.dmg` or `.zip` archive hosted as a GitHub release asset
 
 Once those are in place, add `Casks/bigjsonl.rb` to the tap pointing at the signed archive.
-
----
-
-### 2. Improved search with left-pane results list
-
-**Status: shipped.**
-
-When a search returns results, the line list in the left pane is replaced by `SearchResultsView` — a scrollable list of every matching line (capped at 500) showing line number and a snippet with the matched term highlighted. Clicking a result jumps the viewport to that line. Results stay visible until the query is explicitly cleared via the × toolbar button, so the user can navigate freely between matches without re-running the search.
-
-**Design decisions made during implementation:**
-- Drove pane switching off `searchResults.isEmpty` rather than a separate `searchActive` flag — simpler and self-consistent.
-- `clearSearch()` added to `DocumentViewModel` as a single call to reset query, results, and error state.
-- Snippet highlight uses a simple `String.range(of:options:.caseInsensitive)` scan — sufficient for the first-match highlight case; does not highlight multiple occurrences within a single line.
-
-**Future increments:**
-- Highlight all occurrences of the match within a snippet, not just the first.
-- The left pane could evolve into a togglable sidebar with modes: line list / search results / bookmarks.
