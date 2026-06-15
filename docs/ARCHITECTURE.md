@@ -313,26 +313,26 @@ class BigJSONLDocument: ReferenceFileDocument {
 
 ### 1. Package for distribution through Homebrew
 
-**Analysis.** Bigjsonl currently has no distribution mechanism beyond building from source via `swift build`. A Homebrew formula would give users a one-command install (`brew install bigjsonl`), auto-manage dependencies, and provide straightforward upgrade paths. The project produces two binaries — `bigjsonl` (CLI) and `BigJSONLApp` (GUI app) — both of which could be distributed through a single formula.
+**Status: CLI formula shipped (v0.1.0). Cask for GUI app pending.**
 
-Key considerations:
-- **Build from source** — SwiftPM resolves dependencies (swift-json, swift-argument-parser) at build time; the formula needs `swift build -c release` as its build step. macOS 15 (Xcode 16+) is a build dependency.
-- **Two output artifacts** — The CLI (`bigjsonl`) can be installed directly into `/usr/local/bin`. The GUI app (`BigJSONLApp`) should be bundled as a `.app` in `/Applications`. The formula can define multiple `keg_only` outputs or use a `brew` `cask` for the GUI alongside the CLI formula.
-- **Code signing** — Homebrew does not sign binaries; users on Apple Silicon will see a Gatekeeper dialog on first launch for the GUI app. A signed `.app` bundle would need an Apple Developer account and CI signing step.
-- **Versioning** — Formula revision tracks the git tag. The existing SemVer convention (CHANGELOG, git tags) maps directly.
+The CLI is available via the `Sepoy-Software/tap` Homebrew tap:
 
-**Thumbnail plan.**
+```bash
+brew tap Sepoy-Software/tap
+brew trust sepoy-software/tap
+brew install bigjsonl
+```
 
-| Step | Work |
-|------|------|
-| 1 | Create `Formula/bigjsonl.rb` with `desc`, `homepage`, `url`, `sha256`, `depends_on :xcode`.
-| 2 | Set `install` to `system "swift", "build", "-c", "release", "--product", "bigjsonl"` then `bin.install ".build/release/bigjsonl"`.
-| 3 | Optionally add a second output for the GUI: build `--product BigJSONLApp`, create a minimal `.app` bundle skeleton, and offer a `brew` `cask` or a caveat directing the user to build it manually.
-| 4 | Tag a release (`git tag v0.1.0`), compute the source archive SHA256, update the formula.
-| 5 | Test with `brew install --build-from-source Formula/bigjsonl.rb`.
-| 6 | Submit to `homebrew-core` (CLI only) or maintain as a tap (`rajibsingh/tap/bigjsonl`) for faster iteration.
+The formula lives at `Formula/bigjsonl.rb` in [Sepoy-Software/homebrew-tap](https://github.com/Sepoy-Software/homebrew-tap). It builds from the tagged source archive, requires Xcode 16+ at build time, and enforces the macOS 15 deployment target.
 
-The formula should live in a `Formula/` directory at the repo root and be referenced from `README.md` once published.
+**Remaining: Cask for `BigJSONLApp`.**
+
+The GUI app requires a signed and notarized `.app` bundle to avoid Gatekeeper dialogs on first launch. Prerequisites before publishing the Cask:
+- Apple Developer account and a valid Developer ID Application certificate
+- A CI signing and notarization step (e.g., GitHub Actions with `xcrun notarytool`)
+- A versioned `.dmg` or `.zip` archive hosted as a GitHub release asset
+
+Once those are in place, add `Casks/bigjsonl.rb` to the tap pointing at the signed archive.
 
 ---
 
