@@ -6,17 +6,6 @@ struct LineView: View {
     let lineInfo: LineInfo
     let isSelected: Bool
 
-    /// Colors for each token type, matching the ANSI renderer's palette.
-    private static let tokenColors: [TokenType: Color] = [
-        .punctuation:  .secondary,
-        .key:          .cyan,
-        .stringValue:  .orange,
-        .number:       .purple,
-        .bool:         .green,
-        .null:         .green,
-        .invalid:      .red,
-    ]
-
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             // Line number gutter
@@ -44,52 +33,14 @@ struct LineView: View {
     // MARK: - Syntax-highlighted content
 
     private var highlightedContent: some View {
-        attributedLine
+        SyntaxHighlightedText(
+            text: lineInfo.text,
+            tokens: lineInfo.tokens
+        )
+            .lineLimit(3)
+            .truncationMode(.tail)
             .padding(.leading, 4)
             .padding(.vertical, 1)
-    }
-
-    private var attributedLine: Text {
-        guard !lineInfo.tokens.isEmpty else {
-            return Text(lineInfo.text)
-        }
-
-        var result = Text("")
-        let utf8 = lineInfo.text.utf8
-        var lastEnd = 0
-
-        for token in lineInfo.tokens {
-            let start = Int(token.range.lowerBound)
-            let end = Int(token.range.upperBound)
-
-            // Add un-tokenized text between tokens
-            if start > lastEnd {
-                let rangeStart = utf8.index(utf8.startIndex, offsetBy: lastEnd)
-                let rangeEnd = utf8.index(utf8.startIndex, offsetBy: start)
-                let segment = String(lineInfo.text[rangeStart..<rangeEnd])
-                result = result + Text(segment)
-            }
-
-            // Add the token with its color
-            if start < utf8.count {
-                let rangeStart = utf8.index(utf8.startIndex, offsetBy: start)
-                let rangeEnd = utf8.index(utf8.startIndex, offsetBy: min(end, utf8.count))
-                let segment = String(lineInfo.text[rangeStart..<rangeEnd])
-                let color = Self.tokenColors[token.type] ?? .primary
-                result = result + Text(segment).foregroundColor(color)
-            }
-
-            lastEnd = end
-        }
-
-        // Add any remaining text after the last token
-        if lastEnd < utf8.count {
-            let rangeStart = utf8.index(utf8.startIndex, offsetBy: lastEnd)
-            let segment = String(lineInfo.text[rangeStart...])
-            result = result + Text(segment)
-        }
-
-        return result
     }
 
     // MARK: - Helpers
@@ -102,5 +53,63 @@ struct LineView: View {
             return .accentColor.opacity(0.1)
         }
         return .clear
+    }
+}
+
+/// Renders byte-ranged JSON tokens with the shared app syntax palette.
+struct SyntaxHighlightedText: View {
+    let text: String
+    let tokens: [Token]
+
+    private static let tokenColors: [TokenType: Color] = [
+        .punctuation: .secondary,
+        .key: .cyan,
+        .stringValue: .orange,
+        .number: .purple,
+        .bool: .green,
+        .null: .green,
+        .invalid: .red,
+    ]
+
+    var body: some View {
+        attributedText
+    }
+
+    private var attributedText: Text {
+        guard !tokens.isEmpty else {
+            return Text(text)
+        }
+
+        var result = Text("")
+        let utf8 = text.utf8
+        var lastEnd = 0
+
+        for token in tokens {
+            let start = min(Int(token.range.lowerBound), utf8.count)
+            let end = min(Int(token.range.upperBound), utf8.count)
+
+            if start > lastEnd {
+                let rangeStart = utf8.index(utf8.startIndex, offsetBy: lastEnd)
+                let rangeEnd = utf8.index(utf8.startIndex, offsetBy: start)
+                result = result + Text(String(text[rangeStart..<rangeEnd]))
+            }
+
+            if start < end {
+                let rangeStart = utf8.index(utf8.startIndex, offsetBy: start)
+                let rangeEnd = utf8.index(utf8.startIndex, offsetBy: end)
+                let color = Self.tokenColors[token.type] ?? .primary
+                result = result + Text(String(text[rangeStart..<rangeEnd]))
+                    .foregroundColor(color)
+            }
+
+            lastEnd = max(lastEnd, end)
+        }
+
+        if lastEnd < utf8.count {
+            let rangeStart = utf8.index(utf8.startIndex, offsetBy: lastEnd)
+            result = result + Text(String(text[rangeStart...]))
+        }
+
+        return result
     }
 }

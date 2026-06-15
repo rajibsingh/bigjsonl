@@ -32,6 +32,7 @@
 - `LineInspectorView` — shows byte offset, length, and JSON validity for a selected line.
 
 ### Changed
+- Line rows now truncate after three visual lines, while the full-height inspector pretty-prints and syntax-highlights JSON content.
 - `.gitignore` ignores `test-files/`, `*.jsonl`, and `.swiftpm/` to prevent leaking sensitive chat data from test files.
 - `LineOffsetIndex.ensureLineIndexed` now uses batch `Data(chunk)` + `[UInt8]` byte scanning for 5x faster full-file scans.
 

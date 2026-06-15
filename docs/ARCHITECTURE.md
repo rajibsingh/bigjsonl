@@ -173,6 +173,8 @@ struct LineOffsetIndex {
 
 - Uses **swift-json** for per-line parsing
 - `tokenize(_:)` produces a flat array of tokens ordered by byte position within the line
+- `JSONFormatter.prettyPrinted(_:)` adds structural indentation and line breaks
+  while preserving string contents, literal spelling, and object key order
 
 ```swift
 enum TokenType: Equatable {
@@ -249,6 +251,8 @@ class BigJSONLDocument: ReferenceFileDocument {
   preserves a shared line ID as the scroll anchor, allowing continuous navigation
   without mutating viewport state during initial layout
 - Each line is rendered as a `LineView` that applies `AttributedString` styles from the token stream
+- Line rows are limited to three visual lines with tail truncation so a single
+  large JSON value cannot dominate the scrolling viewport
 
 #### Search panel
 
@@ -256,6 +260,13 @@ class BigJSONLDocument: ReferenceFileDocument {
 - On submit: shells out to grep/rg via the core library's search module
 - Shows results as a list with line numbers and a text snippet
 - Clicking a result scrolls the viewport to that line via `ScrollPosition`
+
+#### Line inspector
+
+- Metadata remains fixed above a full-height `Content` pane
+- Valid JSON is pretty-printed with structural line breaks and retokenized for
+  the same syntax palette used by line rows
+- Invalid JSON is shown unchanged and remains selectable
 
 #### Malformed lines
 

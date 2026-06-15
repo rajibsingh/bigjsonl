@@ -165,16 +165,22 @@ struct LineInspectorView: View {
 
                     Divider()
 
-                    Text("Preview")
+                    Text("Content")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
                     ScrollView {
-                        Text(lineInfo.text)
+                        let displayText = lineInfo.isValidJSON
+                            ? JSONFormatter.prettyPrinted(lineInfo.text)
+                            : lineInfo.text
+                        let tokens = JSONTokenizer.tokenize(displayText).tokens
+
+                        SyntaxHighlightedText(text: displayText, tokens: tokens)
                             .font(.caption.monospaced())
                             .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    .frame(maxHeight: 200)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(6)
                     .background(.quaternary.opacity(0.2))
                     .clipShape(.rect(cornerRadius: 4))
@@ -184,9 +190,8 @@ struct LineInspectorView: View {
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
-
-            Spacer()
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding()
         .inspectorColumnWidth(min: 200, ideal: 250, max: 400)
     }

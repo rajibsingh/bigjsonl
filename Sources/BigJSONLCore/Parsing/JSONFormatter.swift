@@ -1,0 +1,105 @@
+/// Formatting utilities for presenting JSON without changing its values or key order.
+public enum JSONFormatter {
+    /// Pretty-prints valid JSON using the requested indentation width.
+    ///
+    /// Strings and number literals are preserved exactly. Invalid JSON is returned
+    /// unchanged so callers can still display the original line.
+    public static func prettyPrinted(_ json: String, indentation: Int = 2) -> String {
+        guard indentation >= 0, JSONTokenizer.tokenize(json).isValid else {
+            return json
+        }
+
+        let bytes = Array(json.utf8)
+        var result: [UInt8] = []
+        result.reserveCapacity(bytes.count + bytes.count / 4)
+
+        var depth = 0
+        var index = 0
+        var isInString = false
+        var isEscaped = false
+
+        while index < bytes.count {
+            let byte = bytes[index]
+
+            if isInString {
+                result.append(byte)
+                if isEscaped {
+                    isEscaped = false
+                } else if byte == UInt8(ascii: "\\") {
+                    isEscaped = true
+                } else if byte == UInt8(ascii: "\"") {
+                    isInString = false
+                }
+                index += 1
+                continue
+            }
+
+            switch byte {
+            case UInt8(ascii: "\""):
+                isInString = true
+                result.append(byte)
+            case UInt8(ascii: "{"), UInt8(ascii: "["):
+                result.append(byte)
+                if nextNonWhitespaceByte(after: index, in: bytes) != matchingClose(for: byte) {
+                    depth += 1
+                    appendNewline(to: &result, depth: depth, indentation: indentation)
+                }
+            case UInt8(ascii: "}"), UInt8(ascii: "]"):
+                let openingByte = byte == UInt8(ascii: "}")
+                    ? UInt8(ascii: "{")
+                    : UInt8(ascii: "[")
+                if result.last != openingByte {
+                    depth = max(depth - 1, 0)
+                    appendNewline(to: &result, depth: depth, indentation: indentation)
+                }
+                result.append(byte)
+            case UInt8(ascii: ","):
+                result.append(byte)
+                appendNewline(to: &result, depth: depth, indentation: indentation)
+            case UInt8(ascii: ":"):
+                result.append(byte)
+                result.append(UInt8(ascii: " "))
+            case UInt8(ascii: " "), UInt8(ascii: "\t"),
+                 UInt8(ascii: "\n"), UInt8(ascii: "\r"):
+                break
+            default:
+                result.append(byte)
+            }
+
+            index += 1
+        }
+
+        return String(decoding: result, as: UTF8.self)
+    }
+
+    private static func nextNonWhitespaceByte(after index: Int, in bytes: [UInt8]) -> UInt8? {
+        var next = index + 1
+        while next < bytes.count {
+            let byte = bytes[next]
+            if byte != UInt8(ascii: " "),
+               byte != UInt8(ascii: "\t"),
+               byte != UInt8(ascii: "\n"),
+               byte != UInt8(ascii: "\r") {
+                return byte
+            }
+            next += 1
+        }
+        return nil
+    }
+
+    private static func matchingClose(for byte: UInt8) -> UInt8 {
+        byte == UInt8(ascii: "{") ? UInt8(ascii: "}") : UInt8(ascii: "]")
+    }
+
+    private static func appendNewline(
+        to result: inout [UInt8],
+        depth: Int,
+        indentation: Int
+    ) {
+        result.append(UInt8(ascii: "\n"))
+        result.append(contentsOf: repeatElement(
+            UInt8(ascii: " "),
+            count: depth * indentation
+        ))
+    }
+}
