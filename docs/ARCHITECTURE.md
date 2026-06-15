@@ -308,3 +308,59 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Search results are capped and asynchronously cancellable | Keeps broad searches from blocking the app or consuming memory proportional to all matches. |
 | 2026-06-15 | Scroll navigation uses bounded overlapping windows | End-of-user-scroll geometry checks enable continuous browsing while avoiding state mutation during initial SwiftUI layout. |
 | 2026-06-15 | Inspector preparation runs off the main actor and uses AppKit text rendering | Keeps selection responsive for content-heavy records while preserving selectable syntax-highlighted output. |
+
+## TODO
+
+### 1. Package for distribution through Homebrew
+
+**Analysis.** Bigjsonl currently has no distribution mechanism beyond building from source via `swift build`. A Homebrew formula would give users a one-command install (`brew install bigjsonl`), auto-manage dependencies, and provide straightforward upgrade paths. The project produces two binaries — `bigjsonl` (CLI) and `BigJSONLApp` (GUI app) — both of which could be distributed through a single formula.
+
+Key considerations:
+- **Build from source** — SwiftPM resolves dependencies (swift-json, swift-argument-parser) at build time; the formula needs `swift build -c release` as its build step. macOS 15 (Xcode 16+) is a build dependency.
+- **Two output artifacts** — The CLI (`bigjsonl`) can be installed directly into `/usr/local/bin`. The GUI app (`BigJSONLApp`) should be bundled as a `.app` in `/Applications`. The formula can define multiple `keg_only` outputs or use a `brew` `cask` for the GUI alongside the CLI formula.
+- **Code signing** — Homebrew does not sign binaries; users on Apple Silicon will see a Gatekeeper dialog on first launch for the GUI app. A signed `.app` bundle would need an Apple Developer account and CI signing step.
+- **Versioning** — Formula revision tracks the git tag. The existing SemVer convention (CHANGELOG, git tags) maps directly.
+
+**Thumbnail plan.**
+
+| Step | Work |
+|------|------|
+| 1 | Create `Formula/bigjsonl.rb` with `desc`, `homepage`, `url`, `sha256`, `depends_on :xcode`.
+| 2 | Set `install` to `system "swift", "build", "-c", "release", "--product", "bigjsonl"` then `bin.install ".build/release/bigjsonl"`.
+| 3 | Optionally add a second output for the GUI: build `--product BigJSONLApp`, create a minimal `.app` bundle skeleton, and offer a `brew` `cask` or a caveat directing the user to build it manually.
+| 4 | Tag a release (`git tag v0.1.0`), compute the source archive SHA256, update the formula.
+| 5 | Test with `brew install --build-from-source Formula/bigjsonl.rb`.
+| 6 | Submit to `homebrew-core` (CLI only) or maintain as a tap (`rajibsingh/tap/bigjsonl`) for faster iteration.
+
+The formula should live in a `Formula/` directory at the repo root and be referenced from `README.md` once published.
+
+---
+
+### 2. Improved search with left-pane results list
+
+**Analysis.** The current search implementation (toolbar text field → grep/rg → jump to first match) is minimal: it shows a single result at a time and provides no way to browse across matches. The desired UX is a persistent search results pane on the left side of the window showing every matching line (line number + snippet), with click-to-navigate, similar to Xcode's find navigator or VS Code's search sidebar.
+
+Several architectural constraints make this non-trivial:
+
+1. **Viewport vs. results list** — The visible line buffer is a finite window around the current scroll position. Search results are potentially scattered across the entire file. Clicking a result needs to scroll the viewport to that exact line, which is already supported (the index can seek by offset).
+
+2. **Memory** — A broad search over a multi-GB file could match thousands of lines. Each match includes line text (potentially ~100 KB per line). We need to cap results (already done: 500 limit) but also avoid loading every matching line's text eagerly into a large array.
+
+3. **UITK reconciliation** — The current layout uses `NavigationSplitView` where the primary pane is the scrollable line list and the detail pane is the line inspector. Search results need their own pane. Options:
+   - **Re-task the sidebar** — When search is active, replace the line list with a search results list; selecting a result scrolls the viewport (which becomes the detail pane).
+   - **Separate floating panel** — A `NSPanel` or SwiftUI `.popover` overlay that floats above the viewport.
+   - **Three-column layout** — Use a true `NavigationSplitView` with sidebar (results), content (line list), and detail (inspector). This is the most natural fit but the most invasive change.
+
+4. **Lazy loading of result lines** — The grep/rg subprocess returns `(lineNumber, byteOffset, lineText)` for each match. The `lineText` field already contains the full text (capped by the result limit). We can display snippets from this text directly without extra I/O. For the full syntax-highlighted view (when the user clicks a result), we read the line through the normal viewport path, tokenize it, and render it — same as any other line.
+
+**Thumbnail plan.**
+
+| Step | Work |
+|------|------|
+| 1 | Add a `searchActive` state and `searchResults: [SearchResult]` array to `DocumentViewModel`. Currently results are stored but not surfaced beyond `scrollTo(firstMatch)`. Keep the 500-match cap and async subprocess from the code review fixes.
+| 2 | Design the search results pane UI in its own SwiftUI view (`SearchResultsView`). Show line number in a gutter + a one-line snippet (trimmed to ~200 chars). Highlight the search pattern within the snippet.
+| 3 | Integrate the pane into `ContentView`'s `NavigationSplitView`. Best approach: when `searchActive`, replace the line list (`ScrollView` → `LazyVStack`) with a `List` of search results. Selecting a result calls `scrollTo(line:)` and switches back to the line list scrolled to that line, with the matched line highlighted.
+| 4 | Handle the back-navigation: after clicking a result and landing on a line, the user should be able to return to the results list without re-running the search. Keep search results cached in the view model until the query changes or is cleared.
+| 5 | Test with broad patterns (e.g., `"event"` matching most lines in a file), edge cases (no matches, exactly 500 matches, pattern with regex special chars).
+
+Down the road, the left pane could evolve into a proper sidebar with togglable modes (file outline vs. search results vs. bookmarks), but a single-purpose search results pane is the right v0.2 increment.
