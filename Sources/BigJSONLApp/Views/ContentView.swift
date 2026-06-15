@@ -32,6 +32,7 @@ struct ContentView: View {
                         ForEach(viewModel.visibleLines, id: \.lineNumber) { lineInfo in
                             Button {
                                 selectedLine = lineInfo.lineNumber
+                                viewModel.prepareInspector(for: lineInfo)
                             } label: {
                                 LineView(
                                     lineInfo: lineInfo,
@@ -80,6 +81,7 @@ struct ContentView: View {
         }
         .onDisappear {
             viewModel.cancelSearch()
+            viewModel.cancelInspectorPreparation()
         }
         .onChange(of: viewModel.requestedScrollLine) { _, line in
             if let line {
@@ -169,19 +171,24 @@ struct LineInspectorView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    ScrollView {
-                        let displayText = lineInfo.isValidJSON
-                            ? JSONFormatter.prettyPrinted(lineInfo.text)
-                            : lineInfo.text
-                        let tokens = JSONTokenizer.tokenize(displayText).tokens
-
-                        SyntaxHighlightedText(text: displayText, tokens: tokens)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .topLeading)
+                    Group {
+                        if viewModel.isPreparingInspector,
+                           viewModel.inspectorLineNumber == lineNumber {
+                            ProgressView("Formatting content...")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if let content = viewModel.inspectorContent,
+                                  viewModel.inspectorLineNumber == lineNumber {
+                            SyntaxHighlightedTextView(
+                                content: content,
+                                contentID: lineNumber
+                            )
+                        } else {
+                            Text("Content unavailable.")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(6)
                     .background(.quaternary.opacity(0.2))
                     .clipShape(.rect(cornerRadius: 4))
                 }

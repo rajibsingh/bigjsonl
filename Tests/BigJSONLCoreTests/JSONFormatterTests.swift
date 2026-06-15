@@ -34,3 +34,14 @@ func invalidJSONIsUnchanged() {
     let input = "{\"broken\":"
     #expect(JSONFormatter.prettyPrinted(input) == input)
 }
+
+@Test("Display content prepares a large payload without revalidating formatted JSON")
+func preparesLargeDisplayContent() {
+    let payload = String(repeating: "x", count: 640_000)
+    let input = #"{"event":"before_provider_request","payload":"\#(payload)"}"#
+    let content = JSONFormatter.displayContent(input, isValid: true)
+
+    #expect(content.text.contains("\n"))
+    #expect(content.text.utf8.count > input.utf8.count)
+    #expect(!content.tokens.isEmpty)
+}

@@ -13,6 +13,7 @@ func viewportNavigation() throws {
     viewModel.openFile()
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
     #expect(viewModel.visibleLines.last?.lineNumber == 21)
+    #expect(viewModel.visibleLines.allSatisfy { $0.tokens.isEmpty })
     #expect(viewModel.canLoadNextWindow)
 
     viewModel.loadNextWindow()
@@ -23,6 +24,32 @@ func viewportNavigation() throws {
     viewModel.loadPreviousWindow()
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
     #expect(viewModel.visibleLines.last?.lineNumber == 21)
+}
+
+@MainActor
+@Test("Inspector content prepares asynchronously and reuses its cache")
+func inspectorPreparationIsCached() async throws {
+    let fixture = try AppTestJSONLFile(lineCount: 2)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+    viewModel.openFile()
+    let line = try #require(viewModel.visibleLines.first)
+
+    viewModel.prepareInspector(for: line)
+    #expect(viewModel.inspectorLineNumber == line.lineNumber)
+
+    for _ in 0..<200 where viewModel.isPreparingInspector {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+
+    let prepared = try #require(viewModel.inspectorContent)
+    #expect(prepared.text.contains("\n"))
+    #expect(!prepared.tokens.isEmpty)
+
+    viewModel.prepareInspector(for: line)
+    #expect(!viewModel.isPreparingInspector)
+    #expect(viewModel.inspectorContent == prepared)
 }
 
 @MainActor

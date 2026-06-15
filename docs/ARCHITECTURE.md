@@ -23,7 +23,8 @@ bigjsonl/
 │       ├── BigJSONLApp.swift
 │       ├── Views/
 │       │   ├── ContentView.swift
-│       │   ├── LineView.swift          ← syntax-highlighted line rendering
+│       │   ├── LineView.swift          ← compact plain-text line rendering
+│       │   ├── SyntaxHighlightedTextView.swift ← AppKit-backed inspector rendering
 │       │   └── SearchPanel.swift
 │       ├── ViewModel/
 │       │   └── DocumentViewModel.swift ← @Observable, bridges core to UI
@@ -86,8 +87,7 @@ Read first window of lines (viewport buffer)
        ▼
 For each line in window:
     ├── Parse with swift-json
-    ├── Tokenize → [Token] (colors, structure)
-    └── Append to line cache for display
+    └── Append plain text and validity to line cache for display
 ```
 
 ### Scrolling (line N)
@@ -250,7 +250,8 @@ class BigJSONLDocument: ReferenceFileDocument {
 - An end-of-user-scroll geometry check loads the previous or next window and
   preserves a shared line ID as the scroll anchor, allowing continuous navigation
   without mutating viewport state during initial layout
-- Each line is rendered as a `LineView` that applies `AttributedString` styles from the token stream
+- Each line is rendered as plain monospace text; viewport rows do not build an
+  unused syntax token stream
 - Line rows are limited to three visual lines with tail truncation so a single
   large JSON value cannot dominate the scrolling viewport
 
@@ -264,8 +265,12 @@ class BigJSONLDocument: ReferenceFileDocument {
 #### Line inspector
 
 - Metadata remains fixed above a full-height `Content` pane
-- Valid JSON is pretty-printed with structural line breaks and retokenized for
-  the same syntax palette used by line rows
+- Valid JSON is pretty-printed and tokenized in a detached task so selecting a
+  large record does not block the main actor; stale results are discarded
+- Prepared content is retained in a three-entry cache for fast reselection
+- An AppKit `NSTextView` renders a single attributed string instead of creating
+  one SwiftUI `Text` node per syntax token; ASCII records use token byte ranges
+  directly as UTF-16 ranges
 - Invalid JSON is shown unchanged and remains selectable
 
 #### Malformed lines
@@ -302,3 +307,4 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Line ranges require lookahead or confirmed EOF | Prevents a partially indexed boundary line from reading through the remainder of a large file. |
 | 2026-06-15 | Search results are capped and asynchronously cancellable | Keeps broad searches from blocking the app or consuming memory proportional to all matches. |
 | 2026-06-15 | Scroll navigation uses bounded overlapping windows | End-of-user-scroll geometry checks enable continuous browsing while avoiding state mutation during initial SwiftUI layout. |
+| 2026-06-15 | Inspector preparation runs off the main actor and uses AppKit text rendering | Keeps selection responsive for content-heavy records while preserving selectable syntax-highlighted output. |

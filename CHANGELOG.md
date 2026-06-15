@@ -32,6 +32,7 @@
 - `LineInspectorView` — shows byte offset, length, and JSON validity for a selected line.
 
 ### Changed
+- Speed up content-heavy inspector selections by formatting and tokenizing off the main actor, caching recent results, and rendering through AppKit.
 - Left-side line rows now use plain text, reserving JSON syntax highlighting for the inspector Content pane.
 - Line rows now truncate after three visual lines, while the full-height inspector pretty-prints and syntax-highlights JSON content.
 - `.gitignore` ignores `test-files/`, `*.jsonl`, and `.swiftpm/` to prevent leaking sensitive chat data from test files.

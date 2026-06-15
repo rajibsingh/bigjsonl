@@ -10,6 +10,15 @@ import JSON
 /// positions gives us accurate source ranges, which swift-json's AST doesn't
 /// preserve.
 public enum JSONTokenizer {
+    /// Returns whether the supplied text is valid JSON without producing tokens.
+    public static func isValid(_ line: String) -> Bool {
+        do {
+            _ = try JSON.Node(parsing: line[...])
+            return true
+        } catch {
+            return false
+        }
+    }
 
     /// Tokenizes a single line of JSON text.
     ///
@@ -20,19 +29,17 @@ public enum JSONTokenizer {
     ///     `.invalid` token spanning the entire line is returned.
     public static func tokenize(_ line: String) -> (isValid: Bool, tokens: [Token]) {
         // Phase 1: Validate with swift-json
-        let isValid: Bool
-        do {
-            _ = try JSON.Node(parsing: line[...])
-            isValid = true
-        } catch {
-            isValid = false
-        }
+        let isValid = isValid(line)
 
         guard isValid else {
             let length = UInt64(line.utf8.count)
             return (false, [Token(range: 0..<length, type: .invalid)])
         }
 
+        return (true, tokenizeValidJSON(line))
+    }
+
+    static func tokenizeValidJSON(_ line: String) -> [Token] {
         // Phase 2: Byte-level tokenization
         let bytes = Array(line.utf8)
         var tokens: [Token] = []
@@ -119,7 +126,7 @@ public enum JSONTokenizer {
             }
         }
 
-        return (true, tokens)
+        return tokens
     }
 
     /// Checks whether the byte position is followed by `:` (ignoring whitespace),

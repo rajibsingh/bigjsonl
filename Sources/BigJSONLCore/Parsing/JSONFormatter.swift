@@ -1,11 +1,39 @@
 /// Formatting utilities for presenting JSON without changing its values or key order.
 public enum JSONFormatter {
+    /// Prepares text and syntax tokens for a formatted content view.
+    public static func displayContent(
+        _ json: String,
+        isValid: Bool
+    ) -> JSONDisplayContent {
+        guard isValid else {
+            return JSONDisplayContent(
+                text: json,
+                tokens: [Token(range: 0..<UInt64(json.utf8.count), type: .invalid)]
+            )
+        }
+
+        let text = prettyPrinted(json, indentation: 2, validate: false)
+        return JSONDisplayContent(
+            text: text,
+            tokens: JSONTokenizer.tokenizeValidJSON(text)
+        )
+    }
+
     /// Pretty-prints valid JSON using the requested indentation width.
     ///
     /// Strings and number literals are preserved exactly. Invalid JSON is returned
     /// unchanged so callers can still display the original line.
     public static func prettyPrinted(_ json: String, indentation: Int = 2) -> String {
-        guard indentation >= 0, JSONTokenizer.tokenize(json).isValid else {
+        prettyPrinted(json, indentation: indentation, validate: true)
+    }
+
+    private static func prettyPrinted(
+        _ json: String,
+        indentation: Int,
+        validate: Bool
+    ) -> String {
+        guard indentation >= 0,
+              !validate || JSONTokenizer.isValid(json) else {
             return json
         }
 
@@ -101,5 +129,16 @@ public enum JSONFormatter {
             UInt8(ascii: " "),
             count: depth * indentation
         ))
+    }
+}
+
+/// Prepared text and byte-ranged tokens for a JSON content view.
+public struct JSONDisplayContent: Equatable, Sendable {
+    public let text: String
+    public let tokens: [Token]
+
+    public init(text: String, tokens: [Token]) {
+        self.text = text
+        self.tokens = tokens
     }
 }

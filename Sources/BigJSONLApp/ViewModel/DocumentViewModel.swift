@@ -30,6 +30,14 @@ final class DocumentViewModel {
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var searchGeneration = 0
 
+    // MARK: - Inspector state
+    var inspectorContent: JSONDisplayContent?
+    var inspectorLineNumber: UInt64?
+    var isPreparingInspector = false
+    @ObservationIgnored private var inspectorTask: Task<Void, Never>?
+    @ObservationIgnored private var inspectorCache: [UInt64: JSONDisplayContent] = [:]
+    @ObservationIgnored private var inspectorCacheOrder: [UInt64] = []
+
     /// The number of lines to keep in the viewport buffer (above and below the visible area).
     private let bufferSize: UInt64 = 20
 
@@ -152,7 +160,7 @@ final class DocumentViewModel {
         guard let text = String(data: rawData, encoding: .utf8) else { return nil }
         let displayText = text.trimmingCharacters(in: ["\n", "\r"])
 
-        let (isValid, tokens) = JSONTokenizer.tokenize(displayText)
+        let isValid = JSONTokenizer.isValid(displayText)
 
         return LineInfo(
             lineNumber: lineNum,
@@ -160,8 +168,54 @@ final class DocumentViewModel {
             byteLength: length,
             isValidJSON: isValid,
             text: displayText,
-            tokens: tokens
+            tokens: []
         )
+    }
+
+    // MARK: - Inspector
+
+    func prepareInspector(for lineInfo: LineInfo) {
+        inspectorTask?.cancel()
+        inspectorLineNumber = lineInfo.lineNumber
+
+        if let cached = inspectorCache[lineInfo.lineNumber] {
+            inspectorContent = cached
+            isPreparingInspector = false
+            touchInspectorCache(lineInfo.lineNumber)
+            return
+        }
+
+        inspectorContent = nil
+        isPreparingInspector = true
+        let lineNumber = lineInfo.lineNumber
+        let text = lineInfo.text
+        let isValid = lineInfo.isValidJSON
+
+        inspectorTask = Task {
+            let content = await Task.detached(priority: .userInitiated) {
+                JSONFormatter.displayContent(text, isValid: isValid)
+            }.value
+
+            guard !Task.isCancelled, inspectorLineNumber == lineNumber else { return }
+            cacheInspectorContent(content, for: lineNumber)
+            inspectorContent = content
+            isPreparingInspector = false
+        }
+    }
+
+    private func cacheInspectorContent(_ content: JSONDisplayContent, for line: UInt64) {
+        inspectorCache[line] = content
+        touchInspectorCache(line)
+
+        while inspectorCacheOrder.count > 3 {
+            let evicted = inspectorCacheOrder.removeFirst()
+            inspectorCache.removeValue(forKey: evicted)
+        }
+    }
+
+    private func touchInspectorCache(_ line: UInt64) {
+        inspectorCacheOrder.removeAll { $0 == line }
+        inspectorCacheOrder.append(line)
     }
 
     // MARK: - Search
@@ -211,5 +265,11 @@ final class DocumentViewModel {
         searchTask?.cancel()
         searchTask = nil
         isSearching = false
+    }
+
+    func cancelInspectorPreparation() {
+        inspectorTask?.cancel()
+        inspectorTask = nil
+        isPreparingInspector = false
     }
 }
