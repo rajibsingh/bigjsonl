@@ -14,47 +14,13 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            // Main content: scrollable line list
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if let error = viewModel.errorMessage {
-                        Text(error)
-                            .foregroundStyle(.red)
-                            .padding()
-                    } else if viewModel.isLoading {
-                        ProgressView("Opening file...")
-                            .padding()
-                    } else if viewModel.visibleLines.isEmpty {
-                        Text("No lines to display")
-                            .foregroundStyle(.secondary)
-                            .padding()
-                    } else {
-                        ForEach(viewModel.visibleLines, id: \.lineNumber) { lineInfo in
-                            Button {
-                                selectedLine = lineInfo.lineNumber
-                                viewModel.prepareInspector(for: lineInfo)
-                            } label: {
-                                LineView(
-                                    lineInfo: lineInfo,
-                                    isSelected: selectedLine == lineInfo.lineNumber
-                                )
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id(lineInfo.lineNumber)
-                            Divider()
-                                .opacity(0.3)
-                        }
-                    }
+            // Left pane: search results when active, otherwise scrollable line list
+            Group {
+                if !viewModel.searchResults.isEmpty {
+                    searchResultsPane
+                } else {
+                    lineListPane
                 }
-                .scrollTargetLayout()
-            }
-            .scrollPosition($scrollPosition)
-            .defaultScrollAnchor(.top)
-            .onScrollPhaseChange { oldPhase, newPhase, context in
-                guard newPhase == .idle, oldPhase.isScrolling else { return }
-                loadWindowIfNeeded(for: context.geometry)
             }
             .navigationTitle(document.url.lastPathComponent)
             .toolbar {
@@ -91,6 +57,87 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Line list pane
+
+    private var lineListPane: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .padding()
+                } else if viewModel.isLoading {
+                    ProgressView("Opening file...")
+                        .padding()
+                } else if viewModel.visibleLines.isEmpty {
+                    Text("No lines to display")
+                        .foregroundStyle(.secondary)
+                        .padding()
+                } else {
+                    ForEach(viewModel.visibleLines, id: \.lineNumber) { lineInfo in
+                        Button {
+                            selectedLine = lineInfo.lineNumber
+                            viewModel.prepareInspector(for: lineInfo)
+                        } label: {
+                            LineView(
+                                lineInfo: lineInfo,
+                                isSelected: selectedLine == lineInfo.lineNumber
+                            )
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(lineInfo.lineNumber)
+                        Divider()
+                            .opacity(0.3)
+                    }
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollPosition($scrollPosition)
+        .defaultScrollAnchor(.top)
+        .onScrollPhaseChange { oldPhase, newPhase, context in
+            guard newPhase == .idle, oldPhase.isScrolling else { return }
+            loadWindowIfNeeded(for: context.geometry)
+        }
+    }
+
+    // MARK: - Search results pane
+
+    private var searchResultsPane: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("\(viewModel.searchResults.count) result\(viewModel.searchResults.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if viewModel.searchResults.count >= 500 {
+                    Text("capped at 500")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.quaternary.opacity(0.2))
+
+            Divider()
+
+            SearchResultsView(
+                results: viewModel.searchResults,
+                query: viewModel.searchQuery,
+                selectedLine: selectedLine
+            ) { result in
+                selectedLine = result.lineNumber
+                viewModel.scrollTo(line: result.lineNumber)
+                if let lineInfo = viewModel.visibleLines.first(where: { $0.lineNumber == result.lineNumber }) {
+                    viewModel.prepareInspector(for: lineInfo)
+                }
+            }
+        }
+    }
+
     // MARK: - Search toolbar
 
     private var searchToolbarItem: some View {
@@ -107,6 +154,15 @@ struct ContentView: View {
                 ProgressView()
                     .scaleEffect(0.5)
                     .frame(width: 12)
+            } else if !viewModel.searchResults.isEmpty || !viewModel.searchQuery.isEmpty {
+                Button {
+                    viewModel.clearSearch()
+                    selectedLine = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(6)

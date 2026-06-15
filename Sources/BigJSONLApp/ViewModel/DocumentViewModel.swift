@@ -267,6 +267,13 @@ final class DocumentViewModel {
         isSearching = false
     }
 
+    func clearSearch() {
+        cancelSearch()
+        searchQuery = ""
+        searchResults = []
+        searchError = nil
+    }
+
     func cancelInspectorPreparation() {
         inspectorTask?.cancel()
         inspectorTask = nil
