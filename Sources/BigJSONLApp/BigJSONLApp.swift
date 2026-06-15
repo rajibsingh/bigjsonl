@@ -4,13 +4,8 @@ import AppKit
 
 @main
 struct BigJSONLApp: App {
-    @State private var tabs: [TabItem] = [TabItem()]
+    @State private var tabs: [TabItem] = []
     @State private var selectedTabID: UUID = UUID()
-
-    init() {
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate()
-    }
 
     var body: some Scene {
         WindowGroup {
@@ -35,7 +30,13 @@ struct BigJSONLApp: App {
             }
             .frame(minWidth: 600, minHeight: 400)
             .onAppear {
-                selectedTabID = tabs[0].id
+                NSApplication.shared.setActivationPolicy(.regular)
+                NSApplication.shared.activate()
+                if tabs.isEmpty {
+                    let first = TabItem()
+                    tabs = [first]
+                    selectedTabID = first.id
+                }
             }
         }
         .commands {
