@@ -1,5 +1,6 @@
 import SwiftUI
 import BigJSONLCore
+import AppKit
 
 @main
 struct BigJSONLApp: App {
@@ -10,6 +11,12 @@ struct BigJSONLApp: App {
                 old.stopAccessingSecurityScopedResource()
             }
         }
+    }
+
+    init() {
+        NSWindow.allowsAutomaticWindowTabbing = false
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate()
     }
 
     var body: some Scene {

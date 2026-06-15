@@ -45,9 +45,18 @@ let package = Package(
         .executableTarget(
             name: "BigJSONLApp",
             dependencies: ["BigJSONLCore"],
+            exclude: ["Info.plist"],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
                 .swiftLanguageMode(.v6)
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/BigJSONLApp/Info.plist"
+                ])
             ]
         ),
 

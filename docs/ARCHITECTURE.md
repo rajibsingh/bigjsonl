@@ -62,6 +62,10 @@ swift-arg-     SwiftUI +
 - `BigJSONLCore` has **zero dependencies** — only `Foundation` and `Dispatch` (system frameworks)
 - `bigjsonl-cli` depends on `swift-argument-parser` (Apple-maintained, lightweight)
 - `BigJSONLApp` depends only on system frameworks: SwiftUI, AppKit, UniformTypeIdentifiers
+- The SwiftPM executable embeds `Sources/BigJSONLApp/Info.plist` in its Mach-O
+  `__TEXT,__info_plist` section, disables automatic window tabbing, and opts into
+  AppKit's regular activation policy, so Xcode launches it as a foreground GUI
+  app with bundle metadata for `com.rajibsingh.bigjsonl`
 
 ## Data Flow
 
@@ -241,9 +245,9 @@ class BigJSONLDocument: ReferenceFileDocument {
 
 - Uses `ScrollPosition` binding (macOS 15) for programmatic scrolling to search results
 - Renders only a bounded overlapping line window
-- Invisible edge sentinels load the previous or next window and preserve a shared
-  line ID as the scroll anchor, allowing continuous navigation without retaining
-  the whole file
+- An end-of-user-scroll geometry check loads the previous or next window and
+  preserves a shared line ID as the scroll anchor, allowing continuous navigation
+  without mutating viewport state during initial layout
 - Each line is rendered as a `LineView` that applies `AttributedString` styles from the token stream
 
 #### Search panel
@@ -286,4 +290,4 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Trailing newline at EOF doesn't create a line entry | Prevents off-by-one when the last byte of the file is `\n`. |
 | 2026-06-15 | Line ranges require lookahead or confirmed EOF | Prevents a partially indexed boundary line from reading through the remainder of a large file. |
 | 2026-06-15 | Search results are capped and asynchronously cancellable | Keeps broad searches from blocking the app or consuming memory proportional to all matches. |
-| 2026-06-15 | Scroll navigation uses bounded overlapping windows | Enables continuous browsing while keeping rendered and tokenized line memory bounded. |
+| 2026-06-15 | Scroll navigation uses bounded overlapping windows | End-of-user-scroll geometry checks enable continuous browsing while avoiding state mutation during initial SwiftUI layout. |
