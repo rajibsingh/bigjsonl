@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Tabbed interface — multiple JSONL files can be open simultaneously in a single window. Each tab is fully independent (its own viewport, index, search state, and inspector). A + button opens a new empty tab showing the welcome screen; ⌘T is the keyboard shortcut. Closing the last tab resets it to empty rather than quitting.
+- `TabItem` — model owning a tab's URL, `BigJSONLDocument`, and display title.
+- `TabBarView` — horizontal tab strip with per-tab close buttons, scrollable when many tabs are open, and a + button at the right end.
 - Search results pane in the left column — when a search returns matches, the line list is replaced by a scrollable list of results showing line number and snippet with the matched term highlighted in orange. Clicking any result jumps the viewport to that line without dismissing the results, so the user can navigate freely between matches. A × button in the toolbar clears the search and restores the line list.
 - `clearSearch()` on `DocumentViewModel` — resets query, results, and error state in one call.
 
