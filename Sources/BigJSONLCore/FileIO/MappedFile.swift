@@ -63,14 +63,17 @@ public final class MappedFile: @unchecked Sendable {
     ///   the range is invalid.
     public func read(offset: UInt64, length: UInt64) -> DispatchData {
         guard let base = baseAddress,
-              offset + length <= size,
+              offset <= size,
+              length <= size - offset,
               length > 0 else {
             return DispatchData.empty
         }
         let ptr = base.advanced(by: Int(offset))
         let buffer = UnsafeRawBufferPointer(start: ptr, count: Int(length))
-        // DispatchData must not deallocate — the MappedFile owns the mapping
-        return DispatchData(bytesNoCopy: buffer, deallocator: .custom(nil, {}))
+        // Keep the mapping owner alive until the returned data is released.
+        return DispatchData(bytesNoCopy: buffer, deallocator: .custom(nil) {
+            _ = self
+        })
     }
 
     /// Reads a single byte at the given offset.

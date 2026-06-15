@@ -7,7 +7,7 @@ import Foundation
 public enum Searcher {
 
     /// The search tool to use.
-    public enum Tool: String, CustomStringConvertible {
+    public enum Tool: String, CustomStringConvertible, Sendable {
         case rg
         case grep
 
@@ -34,25 +34,81 @@ public enum Searcher {
     public static func search(
         pattern: String,
         in fileURL: URL,
-        tool: Tool = preferredTool
+        tool: Tool = preferredTool,
+        limit: Int = 500
+    ) throws -> [SearchResult] {
+        guard limit > 0 else {
+            throw SearchError.invalidLimit(limit)
+        }
+        return try search(
+            pattern: pattern,
+            in: fileURL,
+            tool: tool,
+            limit: limit,
+            controller: nil
+        )
+    }
+
+    /// Searches without blocking the caller's actor and cancels the subprocess
+    /// when the surrounding task is cancelled.
+    public static func searchAsync(
+        pattern: String,
+        in fileURL: URL,
+        tool: Tool = preferredTool,
+        limit: Int = 500
+    ) async throws -> [SearchResult] {
+        guard limit > 0 else {
+            throw SearchError.invalidLimit(limit)
+        }
+        let controller = ProcessController()
+
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                try Task.checkCancellation()
+                return try search(
+                    pattern: pattern,
+                    in: fileURL,
+                    tool: tool,
+                    limit: limit,
+                    controller: controller
+                )
+            }.value
+        } onCancel: {
+            controller.cancel()
+        }
+    }
+
+    private static func search(
+        pattern: String,
+        in fileURL: URL,
+        tool: Tool,
+        limit: Int,
+        controller: ProcessController?
     ) throws -> [SearchResult] {
         let toolPath = try resolveToolPath(tool)
-        let args = buildArgs(for: tool, pattern: pattern, fileURL: fileURL)
-        let output = try runSubprocess(tool: toolPath, args: args)
+        let args = buildArgs(for: tool, pattern: pattern, fileURL: fileURL, limit: limit)
+        let output = try runSubprocess(tool: toolPath, args: args, controller: controller)
         return try parseResults(output: output, tool: tool)
-            .sorted { $0.lineNumber < $1.lineNumber }
     }
 
     // MARK: - Private
 
     /// Build the argument list for the given tool.
-    private static func buildArgs(for tool: Tool, pattern: String, fileURL: URL) -> [String] {
+    private static func buildArgs(
+        for tool: Tool,
+        pattern: String,
+        fileURL: URL,
+        limit: Int
+    ) -> [String] {
         switch tool {
         case .rg:
             return [
                 "--byte-offset",
                 "--line-number",
                 "--no-heading",
+                "--max-count",
+                String(limit),
+                "--",
                 pattern,
                 fileURL.path
             ]
@@ -60,6 +116,8 @@ public enum Searcher {
             return [
                 "--byte-offset",
                 "--line-number",
+                "--max-count=\(limit)",
+                "--",
                 pattern,
                 fileURL.path
             ]
@@ -101,7 +159,11 @@ public enum Searcher {
     ///
     /// Reads stdout on a background queue while the process runs to avoid
     /// pipe buffer deadlocks (pipe buffer is ~64KB on macOS).
-    private static func runSubprocess(tool: String, args: [String]) throws -> String {
+    private static func runSubprocess(
+        tool: String,
+        args: [String],
+        controller: ProcessController?
+    ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = args
@@ -115,31 +177,37 @@ public enum Searcher {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
-        var stdoutData = Data()
-        var stderrData = Data()
+        let stdoutData = LockedData()
+        let stderrData = LockedData()
 
         let group = DispatchGroup()
 
         group.enter()
         DispatchQueue.global().async {
-            stdoutData = stdoutHandle.readDataToEndOfFile()
+            stdoutData.set(stdoutHandle.readDataToEndOfFile())
             group.leave()
         }
 
         group.enter()
         DispatchQueue.global().async {
-            stderrData = stderrHandle.readDataToEndOfFile()
+            stderrData.set(stderrHandle.readDataToEndOfFile())
             group.leave()
         }
 
         try process.run()
+        controller?.setProcess(process)
         process.waitUntilExit()
 
         // Wait for both reads to complete
         group.wait()
 
-        guard process.terminationStatus == 0 else {
-            let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        if controller?.isCancelled == true {
+            throw CancellationError()
+        }
+
+        // grep and ripgrep use status 1 for a successful search with no matches.
+        guard process.terminationStatus == 0 || process.terminationStatus == 1 else {
+            let stderr = String(data: stderrData.value, encoding: .utf8) ?? ""
             throw SearchError.searchFailed(
                 tool: tool,
                 exitCode: process.terminationStatus,
@@ -147,7 +215,7 @@ public enum Searcher {
             )
         }
 
-        return String(data: stdoutData, encoding: .utf8) ?? ""
+        return String(data: stdoutData.value, encoding: .utf8) ?? ""
     }
 
     /// Check if a command is available on `$PATH`.
@@ -178,11 +246,55 @@ public enum Searcher {
     }
 }
 
+private final class LockedData: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    var value: Data {
+        lock.withLock { data }
+    }
+
+    func set(_ data: Data) {
+        lock.withLock {
+            self.data = data
+        }
+    }
+}
+
+private final class ProcessController: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.withLock { cancelled }
+    }
+
+    func setProcess(_ process: Process) {
+        lock.withLock {
+            self.process = process
+            if cancelled, process.isRunning {
+                process.terminate()
+            }
+        }
+    }
+
+    func cancel() {
+        lock.withLock {
+            cancelled = true
+            if let process, process.isRunning {
+                process.terminate()
+            }
+        }
+    }
+}
+
 // MARK: - Errors
 
 public enum SearchError: Error, CustomStringConvertible {
     case toolNotFound(Searcher.Tool)
     case searchFailed(tool: String, exitCode: Int32, stderr: String)
+    case invalidLimit(Int)
 
     public var description: String {
         switch self {
@@ -190,6 +302,8 @@ public enum SearchError: Error, CustomStringConvertible {
             return "\(tool) not found on $PATH"
         case .searchFailed(let tool, let exitCode, let stderr):
             return "\(tool) exited with code \(exitCode): \(stderr)"
+        case .invalidLimit(let limit):
+            return "Search result limit must be positive, got \(limit)"
         }
     }
 }

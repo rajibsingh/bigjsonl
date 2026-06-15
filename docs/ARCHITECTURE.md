@@ -32,9 +32,11 @@ bigjsonl/
 ├── Tests/
 │   ├── BigJSONLCoreTests/
 │   │   ├── LineOffsetIndexTests.swift
-│   │   ├── TokenizerTests.swift
-│   │   └── SearchTests.swift
+│   │   ├── MappedFileTests.swift
+│   │   ├── JSONTokenizerTests.swift
+│   │   └── SearcherTests.swift
 │   └── BigJSONLAppTests/
+│       └── DocumentViewModelTests.swift
 ├── test-files/             ← real JSONL data for manual testing
 ├── Package.swift
 ├── CHANGELOG.md
@@ -93,8 +95,13 @@ User scrolls to line N
 LineOffsetIndex.hasLine(N)?
        ├── Yes → seek to byte offset, read window
        └── No  → byte-scan from last indexed position to N
-                    ├── Append entries to LineOffsetIndex
-                    └── seek to byte offset, read window
+                    └── Append entries to LineOffsetIndex
+       │
+       ▼
+Read a bounded overlapping window
+       │
+       ▼
+Edge sentinels shift the window while preserving a stable anchor
 ```
 
 ### Search
@@ -106,7 +113,7 @@ User enters search query
 Shell out: grep/rg --byte-offset --line-number <pattern> <file>
        │
        ▼
-Parse output → [(lineNumber, byteOffset)]
+Parse capped output → [(lineNumber, byteOffset)]
        │
        ▼
 Translate through LineOffsetIndex → absolute byte positions
@@ -122,6 +129,8 @@ Jump viewport to first match (or show result list)
 #### FileIO
 
 - Uses `mmap` via `DispatchData` for zero-copy access to file regions
+- No-copy `DispatchData` regions retain their `MappedFile` owner so the mapping
+  cannot be unmapped while a returned slice is still alive
 - Provides `FileRegion(url:, offset:, length:)` — a lightweight reference to a byte range
 - Handles line-boundary detection (newline, carriage-return-newline, trailing newline edge cases)
 - Exposes `totalFileSize` and `numberOfNewlines` (the latter from the index, not a full scan)
@@ -138,6 +147,8 @@ struct FileRegion {
 #### Indexing — LineOffsetIndex
 
 - **Strategy: lazy incremental** — start empty, extend as the user navigates
+- Tracks whether EOF has been reached; a line range is available only when its
+  next-line boundary or the physical EOF is known
 - Stores a sorted array of `(lineNumber: UInt64, byteOffset: UInt64)` pairs
 - On `seek(toLine:)`: if the line is indexed, use it; if not, scan forward from the last indexed byte offset until the target line is reached
 - `readWindow(fromLine:count:)` returns `[FileRegion]` — one per line in the window
@@ -183,6 +194,9 @@ struct Token: Equatable {
 
 - Auto-detects `rg` (ripgrep) on `$PATH`; falls back to `grep`
 - Always requests `--byte-offset` and `--line-number`
+- Caps subprocess output at the requested result limit (500 by default)
+- Provides an async entry point that terminates the subprocess on task cancellation
+- Treats subprocess status 1 as a successful search with no matches
 - Result type:
 
 ```swift
@@ -226,7 +240,10 @@ class BigJSONLDocument: ReferenceFileDocument {
 #### Scroll-driven viewport
 
 - Uses `ScrollPosition` binding (macOS 15) for programmatic scrolling to search results
-- Renders only the visible lines + a small buffer above/below
+- Renders only a bounded overlapping line window
+- Invisible edge sentinels load the previous or next window and preserve a shared
+  line ID as the scroll anchor, allowing continuous navigation without retaining
+  the whole file
 - Each line is rendered as a `LineView` that applies `AttributedString` styles from the token stream
 
 #### Search panel
@@ -265,5 +282,8 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | grep/ripgrep search via subprocess | Avoids implementing search internally. System utilities are fast, well-tested, and handle edge cases. |
 | 2026-06-15 | mmap via DispatchData for file access | Zero-copy windowed reads — no unnecessary memory allocation for visible lines. |
 | 2026-06-15 | Raw UTF-8 byte tokenizer instead of swift-json AST walking | swift-json doesn't preserve source byte positions. Tokenizer validates with swift-json, then scans raw bytes for accurate positions. |
-| 2026-06-15 | `MappedFile` maps entire file, `DispatchData` references sub-regions | Single mmap avoids per-region overhead. DispatchData uses `.custom(nil, {})` deallocator to avoid double-free. |
+| 2026-06-15 | `MappedFile` maps entire file, `DispatchData` references sub-regions | Single mmap avoids per-region overhead. Each no-copy region retains the mapping owner without deallocating the mapped pointer. |
 | 2026-06-15 | Trailing newline at EOF doesn't create a line entry | Prevents off-by-one when the last byte of the file is `\n`. |
+| 2026-06-15 | Line ranges require lookahead or confirmed EOF | Prevents a partially indexed boundary line from reading through the remainder of a large file. |
+| 2026-06-15 | Search results are capped and asynchronously cancellable | Keeps broad searches from blocking the app or consuming memory proportional to all matches. |
+| 2026-06-15 | Scroll navigation uses bounded overlapping windows | Enables continuous browsing while keeping rendered and tokenized line memory bounded. |

@@ -20,7 +20,7 @@
 - CLI `--search` flag runs grep/rg and jumps to the first match.
 - CLI `--line` flag jumps to a specific line.
 - CLI `--window-lines` flag controls viewport height.
-- Test suite: 24 tests covering tokenization, mapped file I/O, lazy index building, and search.
+- Test suite: 30 tests covering tokenization, mapped file I/O, lazy index building, search, and app viewport behavior.
 - `docs/ARCHITECTURE.md` with full design documentation.
 - `docs/PROJECT_VISION.md` with vision, principles, and settled design decisions.
 - `AGENTS.md` with changelog-first development workflow.
@@ -36,6 +36,7 @@
 - `LineOffsetIndex.ensureLineIndexed` now uses batch `Data(chunk)` + `[UInt8]` byte scanning for 5x faster full-file scans.
 
 ### Fixed
+- Hardened large-file navigation, bounded cancellable search, mapped-data lifetimes, empty-file handling, CLI validation, and deterministic test coverage to address the 2026-06-15 code review.
 - `.jsonl` files grayed out in file open dialog — switched `UTType` from `importedAs:` to `UTType(tag:conformingTo:)` for proper system recognition.
 - Hidden files (dotfiles) not visible in file open dialog — replaced SwiftUI `fileImporter` with custom `NSOpenPanel` with `showsHiddenFiles = true`.
 - Files still grayed out with content type filter — removed `allowedContentTypes` filter entirely; validates extension after selection.

@@ -1,54 +1,21 @@
 import Foundation
 
-/// Returns the URL to the `test-files` directory at the package root.
-///
-/// Resolved by walking up from the current source file's path until we find
-/// the `test-files` directory.
-func testFilesDirectory() -> URL {
-    // Start from this source file's directory
-    var url = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // BigJSONLCoreTests/
-        .deletingLastPathComponent() // Tests/
+final class TemporaryJSONLFile {
+    let url: URL
 
-    // Check if we're at the right level (should have Sources, Tests, test-files as siblings)
-    let testFilesURL = url.appendingPathComponent("test-files")
-    if FileManager.default.fileExists(atPath: testFilesURL.path) {
-        return testFilesURL
+    init(contents: String = """
+        {"line":1,"value":"alpha"}
+        {"line":2,"value":"beta"}
+        {"line":3,"value":"gamma"}
+        {"line":4,"value":"delta"}
+        {"line":5,"value":"epsilon"}
+        """) throws {
+        url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bigjsonl-test-\(UUID().uuidString).jsonl")
+        try Data(contents.utf8).write(to: url)
     }
 
-    // Fall back to a heuristic search up the tree
-    var current = url
-    while current.path != "/" {
-        let candidate = current.appendingPathComponent("test-files")
-        if FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
-        }
-        current.deleteLastPathComponent()
-    }
-
-    // Last resort: check the parent of the source dir
-    url.deleteLastPathComponent()
-    let parentTestFiles = url.appendingPathComponent("test-files")
-    return parentTestFiles
-}
-
-/// Returns the URL of the first available test JSONL file.
-func testJSONLFile() throws -> URL {
-    let dir = testFilesDirectory()
-    let contents = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
-    guard let jsonl = contents.first(where: { $0.pathExtension == "jsonl" }) else {
-        throw TestError.noTestFiles(dir)
-    }
-    return jsonl
-}
-
-enum TestError: Error, CustomStringConvertible {
-    case noTestFiles(URL)
-
-    var description: String {
-        switch self {
-        case .noTestFiles(let url):
-            return "No .jsonl test files found in \(url.path)"
-        }
+    deinit {
+        try? FileManager.default.removeItem(at: url)
     }
 }

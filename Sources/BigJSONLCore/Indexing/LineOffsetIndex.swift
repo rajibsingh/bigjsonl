@@ -15,6 +15,8 @@ public struct LineOffsetIndex: Sendable {
     /// Sorted array of (lineNumber, byteOffset) pairs, 1-based.
     /// Each entry records the byte offset of the *start* of that line.
     private var entries: [(UInt64, UInt64)] = []
+    private var scanOffset: UInt64 = 0
+    private var reachedEOF = false
 
     /// Creates an empty index.
     public init() {}
@@ -29,6 +31,11 @@ public struct LineOffsetIndex: Sendable {
     /// scanned yet.
     public var lineCount: UInt64 {
         entries.last?.0 ?? 0
+    }
+
+    /// Whether the index has scanned through the end of the file.
+    public var isComplete: Bool {
+        reachedEOF
     }
 
     /// Returns the byte offset for a given line, if it has been indexed.
@@ -65,45 +72,37 @@ public struct LineOffsetIndex: Sendable {
         guard line > 0 else { return }
         if offsetForLine(line) != nil { return }
 
-        let lastOffset = entries.last?.1 ?? 0
-        var currentLine = entries.last?.0 ?? 0
-
-        if currentLine == 0 {
-            entries.append((1, 0))
-            currentLine = 1
+        let fileSize = mappedFile.size
+        guard fileSize > 0 else {
+            reachedEOF = true
+            return
         }
 
-        let fileSize = mappedFile.size
-        var scanOffset = lastOffset
+        if entries.isEmpty {
+            entries.append((1, 0))
+        }
 
-        while currentLine < line && scanOffset < fileSize {
+        while entries.last!.0 < line && scanOffset < fileSize {
             let chunkSize: UInt64 = min(256 * 1024, fileSize - scanOffset) // 256KB chunks
             let chunk = mappedFile.read(offset: scanOffset, length: chunkSize)
 
             // Scan the chunk for newlines using byte array access
             let bytes = [UInt8](Data(chunk))
-            let count = bytes.count
-            var foundNewline = false
 
-            for i in 0..<count {
-                if bytes[i] == UInt8(ascii: "\n") {
-                    currentLine += 1
-                    if currentLine <= line {
-                        let nextLineStart = scanOffset + UInt64(i) + 1
-                        if nextLineStart < fileSize {
-                            entries.append((currentLine, nextLineStart))
-                        } else {
-                            foundNewline = true
-                            break
-                        }
-                    } else {
-                        break
+            for byte in bytes {
+                scanOffset += 1
+                if byte == UInt8(ascii: "\n"), scanOffset < fileSize {
+                    let nextLine = entries.last!.0 + 1
+                    entries.append((nextLine, scanOffset))
+                    if nextLine == line {
+                        return
                     }
                 }
             }
+        }
 
-            scanOffset += UInt64(count)
-            if foundNewline { break }
+        if scanOffset == fileSize {
+            reachedEOF = true
         }
     }
 
@@ -120,10 +119,10 @@ public struct LineOffsetIndex: Sendable {
     public func byteRangeForLine(_ line: UInt64, fileSize: UInt64) -> Range<UInt64>? {
         guard let start = offsetForLine(line) else { return nil }
 
-        if let nextEntry = entries.first(where: { $0.0 == line + 1 }) {
-            return start..<nextEntry.1
+        if let nextOffset = offsetForLine(line + 1) {
+            return start..<nextOffset
         }
 
-        return start..<fileSize
+        return reachedEOF ? start..<fileSize : nil
     }
 }

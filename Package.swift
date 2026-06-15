@@ -61,14 +61,13 @@ let package = Package(
             ]
         ),
 
-        // App tests — uncomment when adding SwiftUI-specific tests
-        // .testTarget(
-        //     name: "BigJSONLAppTests",
-        //     dependencies: ["BigJSONLApp"],
-        //     swiftSettings: [
-        //         .enableUpcomingFeature("StrictConcurrency"),
-        //         .swiftLanguageMode(.v6)
-        //     ]
-        // )
+        .testTarget(
+            name: "BigJSONLAppTests",
+            dependencies: ["BigJSONLApp"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
+        )
     ]
 )

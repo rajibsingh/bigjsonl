@@ -4,16 +4,16 @@ import BigJSONLCore
 
 @Test("MappedFile opens existing file")
 func mappedFileOpens() throws {
-    let url = try testJSONLFile()
-    let file = try MappedFile(url: url)
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
     #expect(file.size > 0)
-    #expect(file.url == url)
+    #expect(file.url == fixture.url)
 }
 
 @Test("MappedFile reads bytes from known offset")
 func mappedFileReadsBytes() throws {
-    let url = try testJSONLFile()
-    let file = try MappedFile(url: url)
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
 
     // First byte should be '{'
     let firstByte = file.readByte(at: 0)
@@ -22,6 +22,23 @@ func mappedFileReadsBytes() throws {
     // Read a range and verify
     let data = file.read(offset: 0, length: 10)
     #expect(data.count == 10)
+}
+
+@Test("Mapped data retains its mapping owner")
+func mappedDataRetainsOwner() throws {
+    let fixture = try TemporaryJSONLFile()
+    weak var weakFile: MappedFile?
+    var data: DispatchData?
+
+    do {
+        let file = try MappedFile(url: fixture.url)
+        weakFile = file
+        data = file.read(offset: 0, length: file.size)
+    }
+
+    #expect(weakFile != nil)
+    #expect(data?.count == Int(weakFile?.size ?? 0))
+    data = nil
 }
 
 @Test("MappedFile throws on nonexistent file")

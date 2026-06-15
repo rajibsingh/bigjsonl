@@ -43,6 +43,15 @@ struct BigJSONL: ParsableCommand {
     )
     var windowLines: Int = 20
 
+    mutating func validate() throws {
+        if let line, line == 0 {
+            throw ValidationError("--line must be greater than zero.")
+        }
+        guard windowLines > 0 else {
+            throw ValidationError("--window-lines must be greater than zero.")
+        }
+    }
+
     mutating func run() throws {
         let url = URL(fileURLWithPath: file)
         guard FileManager.default.isReadableFile(atPath: url.path) else {
@@ -59,10 +68,14 @@ struct BigJSONL: ParsableCommand {
             // Run search and jump to first match
             print(ANSIRenderer.renderStatus("Searching for \"\(searchPattern)\"..."))
             do {
-                let results = try Searcher.search(pattern: searchPattern, in: url)
+                let results = try Searcher.search(
+                    pattern: searchPattern,
+                    in: url,
+                    limit: 1
+                )
                 if let firstResult = results.first {
                     startLine = firstResult.lineNumber
-                    print(ANSIRenderer.renderStatus("Found \(results.count) match(es), jumping to line \(startLine)."))
+                    print(ANSIRenderer.renderStatus("Found a match, jumping to line \(startLine)."))
                 } else {
                     print(ANSIRenderer.renderStatus("No matches found."))
                     return
@@ -87,9 +100,20 @@ struct BigJSONL: ParsableCommand {
 
         // Show footer
         let totalLines = index.lineCount
-        let footer = ANSIRenderer.renderStatus(
-            "Showing lines \(startLine)-\(min(startLine + UInt64(windowLines) - 1, totalLines)) of \(totalLines) | \(mappedFile.size.bytesFormatted)"
-        )
+        let footerMessage: String
+        if totalLines == 0 {
+            footerMessage = "No lines | \(mappedFile.size.bytesFormatted)"
+        } else {
+            let requestedEnd = startLine.addingReportingOverflow(UInt64(windowLines) - 1)
+            let shownEnd = requestedEnd.overflow
+                ? totalLines
+                : min(requestedEnd.partialValue, totalLines)
+            let totalDescription = index.isComplete
+                ? "of \(totalLines)"
+                : "(more lines available)"
+            footerMessage = "Showing lines \(startLine)-\(shownEnd) \(totalDescription) | \(mappedFile.size.bytesFormatted)"
+        }
+        let footer = ANSIRenderer.renderStatus(footerMessage)
         print(footer)
     }
 
@@ -101,7 +125,8 @@ struct BigJSONL: ParsableCommand {
         index: inout LineOffsetIndex
     ) {
         // Ensure the starting line is indexed
-        let targetLine = start + count
+        let (targetLine, overflowed) = start.addingReportingOverflow(count)
+        guard !overflowed else { return }
         index.ensureLineIndexed(targetLine, mappedFile: mappedFile)
 
         let maxLine = index.lineCount

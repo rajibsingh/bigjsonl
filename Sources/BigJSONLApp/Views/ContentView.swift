@@ -29,16 +29,37 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .padding()
                     } else {
+                        if viewModel.canLoadPreviousWindow {
+                            viewportEdgeLoader {
+                                let anchor = viewModel.visibleLines.first?.lineNumber
+                                viewModel.loadPreviousWindow()
+                                if let anchor {
+                                    scrollPosition.scrollTo(id: anchor, anchor: .top)
+                                }
+                            }
+                        }
+
                         ForEach(viewModel.visibleLines, id: \.lineNumber) { lineInfo in
                             LineView(
                                 lineInfo: lineInfo,
                                 isSelected: selectedLine == lineInfo.lineNumber
                             )
+                            .id(lineInfo.lineNumber)
                             .onTapGesture {
                                 selectedLine = lineInfo.lineNumber
                             }
                             Divider()
                                 .opacity(0.3)
+                        }
+
+                        if viewModel.canLoadNextWindow {
+                            viewportEdgeLoader {
+                                let anchor = viewModel.visibleLines.last?.lineNumber
+                                viewModel.loadNextWindow()
+                                if let anchor {
+                                    scrollPosition.scrollTo(id: anchor, anchor: .bottom)
+                                }
+                            }
                         }
                     }
                 }
@@ -69,6 +90,15 @@ struct ContentView: View {
         .onAppear {
             viewModel.openFile()
         }
+        .onDisappear {
+            viewModel.cancelSearch()
+        }
+        .onChange(of: viewModel.requestedScrollLine) { _, line in
+            if let line {
+                scrollPosition.scrollTo(id: line, anchor: .center)
+                viewModel.requestedScrollLine = nil
+            }
+        }
     }
 
     // MARK: - Search toolbar
@@ -92,6 +122,12 @@ struct ContentView: View {
         .padding(6)
         .background(.quaternary.opacity(0.3))
         .clipShape(.rect(cornerRadius: 6))
+    }
+
+    private func viewportEdgeLoader(action: @escaping () -> Void) -> some View {
+        Color.clear
+            .frame(height: 1)
+            .onAppear(perform: action)
     }
 }
 

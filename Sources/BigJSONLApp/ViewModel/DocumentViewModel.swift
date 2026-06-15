@@ -20,12 +20,15 @@ final class DocumentViewModel {
     var totalLines: UInt64 = 0
     var isLoading: Bool = false
     var errorMessage: String?
+    var requestedScrollLine: UInt64?
 
     // MARK: - Search state
     var searchQuery: String = ""
     var searchResults: [SearchResult] = []
     var isSearching: Bool = false
     var searchError: String?
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var searchGeneration = 0
 
     /// The number of lines to keep in the viewport buffer (above and below the visible area).
     private let bufferSize: UInt64 = 20
@@ -65,6 +68,7 @@ final class DocumentViewModel {
 
         do {
             try loadWindow(around: line)
+            requestedScrollLine = line
         } catch {
             errorMessage = "Error reading file: \(error.localizedDescription)"
         }
@@ -78,10 +82,14 @@ final class DocumentViewModel {
 
         let safeCenter = max(centerLine, 1)
         let startLine = safeCenter > bufferSize ? safeCenter - bufferSize : 1
-        let endLine = safeCenter + bufferSize
+        let endLine = safeCenter > UInt64.max - bufferSize
+            ? UInt64.max
+            : safeCenter + bufferSize
 
-        // Ensure the index covers our window
-        index.ensureLineIndexed(endLine, mappedFile: file)
+        // Index one line beyond the window so every displayed byte range has
+        // either a known next-line boundary or a confirmed EOF.
+        let lookaheadLine = endLine == UInt64.max ? endLine : endLine + 1
+        index.ensureLineIndexed(lookaheadLine, mappedFile: file)
         self.totalLines = index.lineCount
 
         // Read and tokenize each line in the window
@@ -93,6 +101,43 @@ final class DocumentViewModel {
 
         self.visibleLines = lines
         self.firstVisibleLine = startLine
+    }
+
+    var canLoadPreviousWindow: Bool {
+        firstVisibleLine > 1
+    }
+
+    var canLoadNextWindow: Bool {
+        guard let lastVisible = visibleLines.last?.lineNumber else { return false }
+        return !index.isComplete || lastVisible < totalLines
+    }
+
+    /// Advances the bounded viewport while retaining an overlap for scroll anchoring.
+    func loadNextWindow() {
+        guard !isLoading, let lastVisible = visibleLines.last?.lineNumber else { return }
+        let center = lastVisible > UInt64.max - bufferSize
+            ? UInt64.max
+            : lastVisible + bufferSize
+        replaceWindow(around: center)
+    }
+
+    /// Moves the bounded viewport backward while retaining an overlap for scroll anchoring.
+    func loadPreviousWindow() {
+        guard !isLoading else { return }
+        let center = firstVisibleLine > bufferSize
+            ? firstVisibleLine - bufferSize
+            : 1
+        replaceWindow(around: center)
+    }
+
+    private func replaceWindow(around line: UInt64) {
+        isLoading = true
+        do {
+            try loadWindow(around: line)
+        } catch {
+            errorMessage = "Error reading file: \(error.localizedDescription)"
+        }
+        isLoading = false
     }
 
     /// Read and tokenize a single line.
@@ -125,21 +170,46 @@ final class DocumentViewModel {
     func performSearch() {
         guard !searchQuery.isEmpty, let _ = mappedFile else { return }
 
+        searchTask?.cancel()
+        searchGeneration += 1
+        let generation = searchGeneration
         isSearching = true
         searchError = nil
+        let query = searchQuery
 
-        do {
-            let results = try Searcher.search(pattern: searchQuery, in: document.url)
-            self.searchResults = results
-
-            if let first = results.first {
-                scrollTo(line: first.lineNumber)
+        searchTask = Task {
+            defer {
+                if generation == searchGeneration {
+                    isSearching = false
+                }
             }
-        } catch {
-            searchError = "Search failed: \(error.localizedDescription)"
-            self.searchResults = []
-        }
 
+            do {
+                let results = try await Searcher.searchAsync(
+                    pattern: query,
+                    in: document.url,
+                    limit: 500
+                )
+                try Task.checkCancellation()
+                self.searchResults = results
+
+                if let first = results.first {
+                    scrollTo(line: first.lineNumber)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                searchError = "Search failed: \(error.localizedDescription)"
+                self.searchResults = []
+            }
+
+        }
+    }
+
+    func cancelSearch() {
+        searchGeneration += 1
+        searchTask?.cancel()
+        searchTask = nil
         isSearching = false
     }
 }

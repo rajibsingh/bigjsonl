@@ -18,8 +18,8 @@ func offsetInEmptyIndex() {
 
 @Test("Line offset index builds correctly from test file")
 func indexFromTestFile() throws {
-    let url = try testJSONLFile()
-    let file = try MappedFile(url: url)
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
     var index = LineOffsetIndex()
 
     // Index the first 3 lines
@@ -43,8 +43,8 @@ func indexFromTestFile() throws {
 
 @Test("Indexing beyond EOF goes to end")
 func indexBeyondEOF() throws {
-    let url = try testJSONLFile()
-    let file = try MappedFile(url: url)
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
     var index = LineOffsetIndex()
 
     // Try to index line 1,000,000 (way beyond the file)
@@ -63,8 +63,8 @@ func indexBeyondEOF() throws {
 
 @Test("Byte ranges are valid")
 func byteRanges() throws {
-    let url = try testJSONLFile()
-    let file = try MappedFile(url: url)
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
     var index = LineOffsetIndex()
 
     // Index all lines
@@ -85,8 +85,8 @@ func byteRanges() throws {
 
 @Test("Lines match expected byte offsets against newline scanning")
 func lineOffsetsMatchNewlines() throws {
-    let url = try testJSONLFile()
-    let file = try MappedFile(url: url)
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
     var index = LineOffsetIndex()
 
     // Index all lines
@@ -100,4 +100,31 @@ func lineOffsetsMatchNewlines() throws {
             #expect(firstByte == UInt8(ascii: "{"))
         }
     }
+}
+
+@Test("A line range requires a known next boundary or EOF")
+func byteRangeRequiresLookahead() throws {
+    let fixture = try TemporaryJSONLFile()
+    let file = try MappedFile(url: fixture.url)
+    var index = LineOffsetIndex()
+
+    index.ensureLineIndexed(2, mappedFile: file)
+    #expect(index.byteRangeForLine(2, fileSize: file.size) == nil)
+
+    index.ensureLineIndexed(3, mappedFile: file)
+    let range = index.byteRangeForLine(2, fileSize: file.size)
+    #expect(range?.upperBound == index.offsetForLine(3))
+}
+
+@Test("Empty files contain zero indexed lines")
+func emptyFileHasNoLines() throws {
+    let fixture = try TemporaryJSONLFile(contents: "")
+    let file = try MappedFile(url: fixture.url)
+    var index = LineOffsetIndex()
+
+    index.ensureLineIndexed(1, mappedFile: file)
+
+    #expect(index.lineCount == 0)
+    #expect(index.isComplete)
+    #expect(index.byteRangeForLine(1, fileSize: file.size) == nil)
 }
