@@ -34,3 +34,10 @@
 ### Changed
 - `.gitignore` ignores `test-files/`, `*.jsonl`, and `.swiftpm/` to prevent leaking sensitive chat data from test files.
 - `LineOffsetIndex.ensureLineIndexed` now uses batch `Data(chunk)` + `[UInt8]` byte scanning for 5x faster full-file scans.
+
+### Fixed
+- `.jsonl` files grayed out in file open dialog — switched `UTType` from `importedAs:` to `UTType(tag:conformingTo:)` for proper system recognition.
+- Hidden files (dotfiles) not visible in file open dialog — replaced SwiftUI `fileImporter` with custom `NSOpenPanel` with `showsHiddenFiles = true`.
+- Files still grayed out with content type filter — removed `allowedContentTypes` filter entirely; validates extension after selection.
+- `BigJSONLApp` target not showing as runnable in Xcode — changed from `.target` to `.executableTarget` and added to `products`.
+- `Searcher` subprocess deadlock on large output — reads stdout on background dispatch queue while process runs.
