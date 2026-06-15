@@ -1,5 +1,10 @@
 .build/
+.swiftpm/
 Package.resolved
 *.swp
 *.swo
 .DS_Store
+
+# Ignore test data files — may contain sensitive user chat data
+test-files/
+*.jsonl

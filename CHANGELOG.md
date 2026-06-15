@@ -15,4 +15,7 @@
 - `docs/PROJECT_VISION.md` with vision, principles, and settled design decisions.
 - `AGENTS.md` with changelog-first development workflow.
 - `CHANGELOG.md` with Keep a Changelog conventions.
-- Test data files in `test-files/` (pi session logs).
+- Test data directory `test-files/` with pi session log samples for local testing.
+
+### Changed
+- `.gitignore` ignores `test-files/`, `*.jsonl`, and `.swiftpm/` to prevent leaking sensitive chat data from test files.
