@@ -4,9 +4,15 @@ import Foundation
 /// within a JSONL file.
 ///
 /// The index starts empty and extends itself forward as lines are requested.
-/// Jumping to an unindexed line scans forward from the last known position.
+/// Jumping to an unindexed line scans forward from the last known position
+/// using the provided `MappedFile`.
+///
+/// Line boundaries are detected by scanning for `\n`. Carriage returns (`\r`)
+/// before newlines are handled gracefully (they're included in the line but
+/// don't create extra line entries).
 public struct LineOffsetIndex: Sendable {
     /// Sorted array of (lineNumber, byteOffset) pairs, 1-based.
+    /// Each entry records the byte offset of the *start* of that line.
     private var entries: [(UInt64, UInt64)] = []
 
     /// Creates an empty index.
@@ -18,13 +24,16 @@ public struct LineOffsetIndex: Sendable {
     }
 
     /// The total number of lines discovered so far.
+    /// This is an upper bound — the file may have more lines that haven't been
+    /// scanned yet.
     public var lineCount: UInt64 {
         entries.last?.0 ?? 0
     }
 
     /// Returns the byte offset for a given line, if it has been indexed.
+    /// - Parameter line: 1-based line number.
+    /// - Returns: The byte offset of the start of the line, or nil if not indexed.
     public func offsetForLine(_ line: UInt64) -> UInt64? {
-        // Binary search since entries are sorted by line number
         guard !entries.isEmpty else { return nil }
         var low = 0
         var high = entries.count - 1
@@ -42,37 +51,78 @@ public struct LineOffsetIndex: Sendable {
         return nil
     }
 
-    /// Ensures that the given line has been indexed by scanning forward
-    /// from the last indexed position using the provided file handle.
+    /// Ensures that the given line has been indexed, scanning forward from the
+    /// last known position if necessary.
     ///
-    /// This is the core incremental extension mechanism.
-    public mutating func ensureLineIndexed(_ line: UInt64, fileHandle: FileHandle) throws {
+    /// After calling this, `offsetForLine(line)` is guaranteed to return a value
+    /// (or the line is beyond EOF, in which case `lineCount < line`).
+    ///
+    /// - Parameters:
+    ///   - line: 1-based line number to index.
+    ///   - mappedFile: The memory-mapped file to scan.
+    public mutating func ensureLineIndexed(_ line: UInt64, mappedFile: MappedFile) {
         guard line > 0 else { return }
         if offsetForLine(line) != nil { return }
 
-        let startOffset = entries.last?.1 ?? 0
-        try fileHandle.seek(toOffset: startOffset)
-
+        let lastOffset = entries.last?.1 ?? 0
         var currentLine = entries.last?.0 ?? 0
+
         if currentLine == 0 {
             // Line 1 starts at offset 0
             entries.append((1, 0))
             currentLine = 1
         }
 
-        while currentLine < line {
-            let data = fileHandle.readData(ofLength: 1_024_000) // 1MB chunks
-            if data.isEmpty { break } // EOF
+        let fileSize = mappedFile.size
+        var scanOffset = lastOffset
 
-            let bytes = [UInt8](data)
-            for byte in bytes {
+        while currentLine < line && scanOffset < fileSize {
+            // Scan forward from scanOffset, looking for newlines
+            let chunkSize: UInt64 = min(1024 * 1024, fileSize - scanOffset)
+            let endOffset = scanOffset + chunkSize
+
+            var pos = scanOffset
+            while pos < endOffset && currentLine < line {
+                guard let byte = mappedFile.readByte(at: pos) else { break }
                 if byte == UInt8(ascii: "\n") {
                     currentLine += 1
                     if currentLine <= line {
-                        entries.append((currentLine, startOffset + UInt64(entries.count)))
+                        let nextLineStart = pos + 1
+                        // Don't create a line entry that starts at or past EOF
+                        // (trailing newline at end of file doesn't count as a line)
+                        if nextLineStart < fileSize {
+                            entries.append((currentLine, nextLineStart))
+                        } else {
+                            // We've hit the end — currentLine is effectively the last line
+                            break
+                        }
                     }
                 }
+                pos += 1
             }
+            scanOffset = pos
         }
+    }
+
+    /// Returns the byte range of the given line, if indexed.
+    ///
+    /// The range spans from the start of the line to the start of the next line,
+    /// or to the end of the file for the last line. The range includes the
+    /// trailing newline byte (if any).
+    ///
+    /// - Parameters:
+    ///   - line: 1-based line number.
+    ///   - fileSize: Total file size, used to compute the end of the last line.
+    /// - Returns: The byte range of the line, or nil if the line is not indexed.
+    public func byteRangeForLine(_ line: UInt64, fileSize: UInt64) -> Range<UInt64>? {
+        guard let start = offsetForLine(line) else { return nil }
+
+        // Find the start of the next line
+        if let nextEntry = entries.first(where: { $0.0 == line + 1 }) {
+            return start..<nextEntry.1
+        }
+
+        // This is the last indexed line — extend to end of file
+        return start..<fileSize
     }
 }

@@ -10,7 +10,11 @@
 - CLI tool with swift-argument-parser: `bigjsonl <file> [--line] [--search] [--no-color]`.
 - SwiftUI app skeleton with `DocumentGroup` entry point.
 - `BigJSONLDocument` with overridden read path (never loads full file into memory).
-- Test suite with 7 passing tests for core models and index.
+- `MappedFile` — memory-mapped file I/O via `mmap` + `DispatchData` for zero-copy windowed reads.
+- `JSONTokenizer` — produces byte-accurate `[Token]` arrays from JSON lines using swift-json validation and raw UTF-8 scanning.
+- `LineOffsetIndex.ensureLineIndexed(_:mappedFile:)` — lazy incremental line-to-byte-offset index building.
+- `LineOffsetIndex.byteRangeForLine(_:fileSize:)` — returns the byte range for an indexed line.
+- Test suite: 23 tests covering tokenization, mapped file I/O, and lazy index building against real test data.
 - `docs/ARCHITECTURE.md` with full design documentation.
 - `docs/PROJECT_VISION.md` with vision, principles, and settled design decisions.
 - `AGENTS.md` with changelog-first development workflow.
