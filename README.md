@@ -6,7 +6,37 @@ Each line in a JSONL file is displayed as an independent syntax-highlighted docu
 
 ## Status
 
-Early development (v0.1). Not yet functional.
+v0.1.0 — CLI functional. SwiftUI app in active development.
+
+## Installation
+
+### Homebrew (recommended)
+
+```bash
+brew tap Sepoy-Software/tap
+brew trust sepoy-software/tap
+brew install bigjsonl
+```
+
+### Build from source
+
+Requires Xcode 16+ and macOS 15.
+
+```bash
+git clone https://github.com/rajibsingh/bigjsonl.git
+cd bigjsonl
+swift build -c release --product bigjsonl
+.build/release/bigjsonl --help
+```
+
+## Usage
+
+```bash
+bigjsonl path/to/file.jsonl
+bigjsonl path/to/file.jsonl --line 42
+bigjsonl path/to/file.jsonl --search "error"
+bigjsonl path/to/file.jsonl --no-color
+```
 
 ## Architecture
 
@@ -15,11 +45,3 @@ Early development (v0.1). Not yet functional.
 - **BigJSONLApp** — SwiftUI macOS app (macOS 15+)
 
 See [docs/PROJECT_VISION.md](docs/PROJECT_VISION.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
-
-## Building
-
-```bash
-swift build
-swift test
-swift run bigjsonl --help
-```
