@@ -30,14 +30,18 @@ struct ContentView: View {
                             .padding()
                     } else {
                         ForEach(viewModel.visibleLines, id: \.lineNumber) { lineInfo in
-                            LineView(
-                                lineInfo: lineInfo,
-                                isSelected: selectedLine == lineInfo.lineNumber
-                            )
-                            .id(lineInfo.lineNumber)
-                            .onTapGesture {
+                            Button {
                                 selectedLine = lineInfo.lineNumber
+                            } label: {
+                                LineView(
+                                    lineInfo: lineInfo,
+                                    isSelected: selectedLine == lineInfo.lineNumber
+                                )
+                                .contentShape(.rect)
                             }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(lineInfo.lineNumber)
                             Divider()
                                 .opacity(0.3)
                         }

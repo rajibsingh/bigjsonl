@@ -36,6 +36,7 @@
 - `LineOffsetIndex.ensureLineIndexed` now uses batch `Data(chunk)` + `[UInt8]` byte scanning for 5x faster full-file scans.
 
 ### Fixed
+- Line selection becoming stuck after the first click because selectable row text intercepted subsequent mouse gestures.
 - SwiftUI app startup failures caused by missing executable bundle metadata and viewport edge loaders mutating line state during initial layout.
 - Hardened large-file navigation, bounded cancellable search, mapped-data lifetimes, empty-file handling, CLI validation, and deterministic test coverage to address the 2026-06-15 code review.
 - `.jsonl` files grayed out in file open dialog — switched `UTType` from `importedAs:` to `UTType(tag:conformingTo:)` for proper system recognition.

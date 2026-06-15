@@ -25,7 +25,8 @@ struct LineView: View {
             // Line content with syntax highlighting
             highlightedContent
         }
-        .listRowInsets(EdgeInsets())
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
         .background(backgroundColor)
         .font(.system(.caption, design: .monospaced))
     }
@@ -44,7 +45,6 @@ struct LineView: View {
 
     private var highlightedContent: some View {
         attributedLine
-            .textSelection(.enabled)
             .padding(.leading, 4)
             .padding(.vertical, 1)
     }
