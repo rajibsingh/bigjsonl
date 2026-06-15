@@ -8,7 +8,8 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
-        .executable(name: "bigjsonl", targets: ["bigjsonl-cli"])
+        .executable(name: "bigjsonl", targets: ["bigjsonl-cli"]),
+        .executable(name: "BigJSONLApp", targets: ["BigJSONLApp"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
@@ -40,8 +41,8 @@ let package = Package(
             ]
         ),
 
-        // SwiftUI app
-        .target(
+        // SwiftUI app (macOS 15+)
+        .executableTarget(
             name: "BigJSONLApp",
             dependencies: ["BigJSONLCore"],
             swiftSettings: [

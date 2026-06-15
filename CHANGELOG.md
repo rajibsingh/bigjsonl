@@ -26,7 +26,7 @@
 - `AGENTS.md` with changelog-first development workflow.
 - `CHANGELOG.md` with Keep a Changelog conventions.
 - Test data directory `test-files/` with pi session log samples for local testing.
-- SwiftUI app with welcome screen, file importer, scrollable syntax-highlighted line list, line inspector sidebar, and toolbar search.
+- SwiftUI app (executable product `BigJSONLApp`) with welcome screen, file importer, scrollable syntax-highlighted line list, line inspector sidebar, and toolbar search.
 - `DocumentViewModel` (`@Observable`) — bridges core library to SwiftUI views, manages viewport and search state.
 - `LineView` — renders a single JSONL line with color-coded syntax highlighting via `Text` + `foregroundColor`.
 - `LineInspectorView` — shows byte offset, length, and JSON validity for a selected line.
