@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-06-15
+
 ### Added
 - Swift Package with three targets: `BigJSONLCore`, `bigjsonl-cli`, `BigJSONLApp`.
 - Lazy incremental `LineOffsetIndex` for byte-offset-based file navigation (core).
@@ -47,3 +49,5 @@
 - Files still grayed out with content type filter — removed `allowedContentTypes` filter entirely; validates extension after selection.
 - `BigJSONLApp` target not showing as runnable in Xcode — changed from `.target` to `.executableTarget` and added to `products`.
 - `Searcher` subprocess deadlock on large output — reads stdout on background dispatch queue while process runs.
+
+[0.1.0]: https://github.com/rajibsingh/bigjsonl/releases/tag/v0.1.0
