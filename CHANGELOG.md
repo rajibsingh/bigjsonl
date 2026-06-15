@@ -14,7 +14,13 @@
 - `JSONTokenizer` — produces byte-accurate `[Token]` arrays from JSON lines using swift-json validation and raw UTF-8 scanning.
 - `LineOffsetIndex.ensureLineIndexed(_:mappedFile:)` — lazy incremental line-to-byte-offset index building.
 - `LineOffsetIndex.byteRangeForLine(_:fileSize:)` — returns the byte range for an indexed line.
-- Test suite: 23 tests covering tokenization, mapped file I/O, and lazy index building against real test data.
+- `Searcher` — auto-detects ripgrep/grep, runs subprocess with pipe deadlock handling, parses results into `[SearchResult]`.
+- `ANSIRenderer` — ANSI syntax highlighting with line-number gutter for the CLI.
+- CLI now renders syntax-highlighted JSON lines using `MappedFile`, `LineOffsetIndex`, and `JSONTokenizer`.
+- CLI `--search` flag runs grep/rg and jumps to the first match.
+- CLI `--line` flag jumps to a specific line.
+- CLI `--window-lines` flag controls viewport height.
+- Test suite: 24 tests covering tokenization, mapped file I/O, lazy index building, and search.
 - `docs/ARCHITECTURE.md` with full design documentation.
 - `docs/PROJECT_VISION.md` with vision, principles, and settled design decisions.
 - `AGENTS.md` with changelog-first development workflow.
@@ -23,3 +29,4 @@
 
 ### Changed
 - `.gitignore` ignores `test-files/`, `*.jsonl`, and `.swiftpm/` to prevent leaking sensitive chat data from test files.
+- `LineOffsetIndex.ensureLineIndexed` now uses batch `Data(chunk)` + `[UInt8]` byte scanning for 5x faster full-file scans.

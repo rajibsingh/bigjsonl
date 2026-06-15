@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 
 /// A lazy, incremental mapping from 1-based line numbers to byte offsets
 /// within a JSONL file.
@@ -68,7 +69,6 @@ public struct LineOffsetIndex: Sendable {
         var currentLine = entries.last?.0 ?? 0
 
         if currentLine == 0 {
-            // Line 1 starts at offset 0
             entries.append((1, 0))
             currentLine = 1
         }
@@ -77,30 +77,33 @@ public struct LineOffsetIndex: Sendable {
         var scanOffset = lastOffset
 
         while currentLine < line && scanOffset < fileSize {
-            // Scan forward from scanOffset, looking for newlines
-            let chunkSize: UInt64 = min(1024 * 1024, fileSize - scanOffset)
-            let endOffset = scanOffset + chunkSize
+            let chunkSize: UInt64 = min(256 * 1024, fileSize - scanOffset) // 256KB chunks
+            let chunk = mappedFile.read(offset: scanOffset, length: chunkSize)
 
-            var pos = scanOffset
-            while pos < endOffset && currentLine < line {
-                guard let byte = mappedFile.readByte(at: pos) else { break }
-                if byte == UInt8(ascii: "\n") {
+            // Scan the chunk for newlines using byte array access
+            let bytes = [UInt8](Data(chunk))
+            let count = bytes.count
+            var foundNewline = false
+
+            for i in 0..<count {
+                if bytes[i] == UInt8(ascii: "\n") {
                     currentLine += 1
                     if currentLine <= line {
-                        let nextLineStart = pos + 1
-                        // Don't create a line entry that starts at or past EOF
-                        // (trailing newline at end of file doesn't count as a line)
+                        let nextLineStart = scanOffset + UInt64(i) + 1
                         if nextLineStart < fileSize {
                             entries.append((currentLine, nextLineStart))
                         } else {
-                            // We've hit the end — currentLine is effectively the last line
+                            foundNewline = true
                             break
                         }
+                    } else {
+                        break
                     }
                 }
-                pos += 1
             }
-            scanOffset = pos
+
+            scanOffset += UInt64(count)
+            if foundNewline { break }
         }
     }
 
@@ -117,12 +120,10 @@ public struct LineOffsetIndex: Sendable {
     public func byteRangeForLine(_ line: UInt64, fileSize: UInt64) -> Range<UInt64>? {
         guard let start = offsetForLine(line) else { return nil }
 
-        // Find the start of the next line
         if let nextEntry = entries.first(where: { $0.0 == line + 1 }) {
             return start..<nextEntry.1
         }
 
-        // This is the last indexed line — extend to end of file
         return start..<fileSize
     }
 }
