@@ -229,6 +229,16 @@ USAGE: bigjsonl <file> [--line <n>] [--search <pattern>] [--no-color]
 
 ### BigJSONLApp
 
+#### Tabbed interface
+
+- `TabItem` (`id: UUID`, `url: URL?`, `document: BigJSONLDocument?`) owns one tab's file state; a `nil` URL means an empty tab showing the welcome screen
+- `BigJSONLApp` holds `@State private var tabs: [TabItem]` and `selectedTabID: UUID`; `TabBarView` is rendered above the active tab's `ContentView`
+- `TabBarView` — horizontal strip of tab chips (filename or "New Tab"), × close button per tab, + button at the right end; scrollable when many tabs are open
+- ⌘T opens a new empty tab; ⌘O opens a file in the currently selected tab
+- Closing the last tab resets it to empty rather than quitting, matching macOS convention
+- Native `NSWindow.allowsAutomaticWindowTabbing` is left at its default; the custom tab bar makes system-level tab merging irrelevant
+- Each tab's `DocumentViewModel` is created inside `ContentView` as before — no changes to the core library
+
 #### DocumentGroup with lazy loading
 
 - Uses `DocumentGroup` for native macOS document integration (recent files, drag-and-drop, title bar filename)
@@ -289,7 +299,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | ripgrep as a hard dependency | Auto-detect with graceful grep fallback — less friction for users who don't have rg |
 | Line wrapping / soft wrap | Each line can exceed terminal width / window width; wrapping adds complexity. Deferred. |
 | File watching (live reload) | Useful for log files but adds complexity. Post-v1. |
-| Multi-file tabs | Single-file viewer for v0.1. Post-v1. |
+| Multi-file tabs | Shipped post-v0.1 as a custom SwiftUI tab bar. |
 | Preferences UI | Colors, font size, etc. can be hardcoded for v0.1. |
 
 ## Design Decisions Log
@@ -311,6 +321,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Scroll navigation uses bounded overlapping windows | End-of-user-scroll geometry checks enable continuous browsing while avoiding state mutation during initial SwiftUI layout. |
 | 2026-06-15 | Inspector preparation runs off the main actor and uses AppKit text rendering | Keeps selection responsive for content-heavy records while preserving selectable syntax-highlighted output. |
 | 2026-06-15 | Search results replace the line list in the left pane rather than a separate column | Avoids invasive `NavigationSplitView` restructuring; the existing two-column layout (line list + inspector) is preserved with a clean swap. |
+| 2026-06-15 | Custom SwiftUI tab bar rather than native `NSWindow` automatic tabbing | Native tabbing treats each tab as a separate `WindowGroup` window, making shared tab bar state and the "new tab → welcome screen" flow impractical. Custom tab bar keeps all state in one place. |
 | 2026-06-15 | CLI formula shipped to `Sepoy-Software/tap`; Cask deferred | CLI can build without code signing. GUI Cask requires Apple Developer ID cert, CI notarization, and a signed release archive. |
 
 ## Distribution
@@ -337,34 +348,3 @@ The GUI app requires a signed and notarized `.app` bundle to avoid Gatekeeper di
 
 Once those are in place, add `Casks/bigjsonl.rb` to the tap pointing at the signed archive.
 
-## TODO
-
-### Tabbed interface
-
-**Goal.** Allow the user to have multiple JSONL files open simultaneously in a single window, each in its own tab. Opening a new tab shows the welcome screen (file picker prompt) so the user can select a file. Each tab is fully independent — its own viewport, index, search state, and inspector.
-
-**Analysis.**
-
-The current app uses a single `WindowGroup` with one `documentURL: URL?` state variable. Each file replaces the previous one. `NSWindow.allowsAutomaticWindowTabbing = false` is set explicitly in `init()` to suppress macOS's automatic tab merging — this will need to be removed or selectively overridden.
-
-There are two viable approaches:
-
-1. **Native macOS automatic tabbing** — remove `allowsAutomaticWindowTabbing = false` and let macOS merge new `WindowGroup` windows into tabs automatically. Each tab is a full `WindowGroup` window. Simple to implement but gives limited control over tab creation UX (new tab opens a file picker without a welcome screen unless handled carefully) and tab bar appearance.
-
-2. **Custom tab bar in SwiftUI** — manage an array of open documents in app state, render a custom tab strip at the top of the window, and swap `ContentView` based on the selected tab index. Full control over UX; more code.
-
-**Recommended approach: custom tab bar.** Native tabbing is convenient but leaks state management — each "tab" is actually a separate window with its own `WindowGroup` lifecycle, making it hard to share a tab bar, synchronize selection, or add a + button that opens the welcome screen. A custom tab bar keeps all state in one place and matches the desired UX exactly.
-
-**Thumbnail plan.**
-
-| Step | Work |
-|------|------|
-| 1 | Define a `TabItem` model in `BigJSONLApp.swift`: `id: UUID`, `url: URL?`, `document: BigJSONLDocument?`. A `nil` URL represents a new/empty tab showing the welcome screen. |
-| 2 | Add `@State private var tabs: [TabItem]` and `@State private var selectedTabID: UUID` to `BigJSONLApp`. Initialize with one empty tab on launch. |
-| 3 | Build `TabBarView` — a horizontal `HStack` of tab chips showing the filename (or "New Tab" for empty tabs), with a × close button on each and a + button at the right end. Selecting a chip sets `selectedTabID`; the + button appends a new empty `TabItem`. |
-| 4 | Replace the current `WindowGroup` body with `TabBarView` above a `ZStack`/`switch` that renders `ContentView(document:)` for the selected tab's document, or the welcome screen if the tab has no URL. |
-| 5 | When the welcome screen's "Open File…" button is called from within a tab context, assign the chosen URL to the current tab's `TabItem` rather than a top-level `documentURL`. |
-| 6 | Remove `NSWindow.allowsAutomaticWindowTabbing = false` from `init()` (or keep it — with a custom tab bar, native tabbing is irrelevant and can stay suppressed). |
-| 7 | Handle close: closing the last tab either shows an empty welcome tab or quits the app (match macOS convention — keep at least one window open). |
-
-**State ownership note.** Each `TabItem` owns its `BigJSONLDocument` (and therefore its `LineOffsetIndex` and `MappedFile`). `DocumentViewModel` is created per-tab inside `ContentView` as today — no changes needed to the view model or core library.
