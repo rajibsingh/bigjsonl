@@ -1,16 +1,25 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import BigJSONLCore
 
 @main
 struct BigJSONLApp: App {
-    @State private var isFileImporterPresented = false
-    @State private var documentURL: URL?
+    @State private var documentURL: URL? {
+        didSet {
+            // Release security scope for the previous file
+            if let old = oldValue {
+                old.stopAccessingSecurityScopedResource()
+            }
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
             if let url = documentURL {
                 ContentView(document: BigJSONLDocument(url: url))
+                    .onDisappear {
+                        // Release security scope when window closes
+                        url.stopAccessingSecurityScopedResource()
+                    }
             } else {
                 welcomeView
             }
@@ -18,7 +27,7 @@ struct BigJSONLApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open JSONL File...") {
-                    isFileImporterPresented = true
+                    openFile()
                 }
                 .keyboardShortcut("o", modifiers: .command)
             }
@@ -39,25 +48,19 @@ struct BigJSONLApp: App {
                 .foregroundStyle(.secondary)
 
             Button("Open File...") {
-                isFileImporterPresented = true
+                openFile()
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut("o", modifiers: .command)
         }
         .frame(minWidth: 400, minHeight: 300)
-        .fileImporter(
-            isPresented: $isFileImporterPresented,
-            allowedContentTypes: [.jsonl, .json],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                if let url = urls.first {
-                    documentURL = url
-                }
-            case .failure(let error):
-                print("Failed to open file: \(error)")
-            }
+    }
+
+    private func openFile() {
+        if let url = FileOpenHandler.openFile() {
+            // Start accessing security-scoped resource
+            _ = url.startAccessingSecurityScopedResource()
+            documentURL = url
         }
     }
 }
