@@ -3,12 +3,14 @@ import BigJSONLCore
 
 struct ContentView: View {
     let document: BigJSONLDocument
+    @Binding var searchQuery: String
     @State private var viewModel: DocumentViewModel
     @State private var scrollPosition: ScrollPosition = .init()
     @State private var selectedLine: UInt64?
 
-    init(document: BigJSONLDocument) {
+    init(document: BigJSONLDocument, searchQuery: Binding<String>) {
         self.document = document
+        self._searchQuery = searchQuery
         self._viewModel = State(initialValue: DocumentViewModel(document: document))
     }
 
@@ -126,7 +128,7 @@ struct ContentView: View {
 
             SearchResultsView(
                 results: viewModel.searchResults,
-                query: viewModel.searchQuery,
+                query: searchQuery,
                 selectedLine: selectedLine
             ) { result in
                 selectedLine = result.lineNumber
@@ -144,19 +146,20 @@ struct ContentView: View {
         HStack(spacing: 4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Search pattern...", text: $viewModel.searchQuery)
+            TextField("Search pattern...", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .frame(width: 150)
                 .onSubmit {
-                    viewModel.performSearch()
+                    viewModel.performSearch(query: searchQuery)
                 }
             if viewModel.isSearching {
                 ProgressView()
                     .scaleEffect(0.5)
                     .frame(width: 12)
-            } else if !viewModel.searchResults.isEmpty || !viewModel.searchQuery.isEmpty {
+            } else if !viewModel.searchResults.isEmpty || !searchQuery.isEmpty {
                 Button {
                     viewModel.clearSearch()
+                    searchQuery = ""
                     selectedLine = nil
                 } label: {
                     Image(systemName: "xmark.circle.fill")

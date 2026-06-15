@@ -23,7 +23,6 @@ final class DocumentViewModel {
     var requestedScrollLine: UInt64?
 
     // MARK: - Search state
-    var searchQuery: String = ""
     var searchResults: [SearchResult] = []
     var isSearching: Bool = false
     var searchError: String?
@@ -221,15 +220,14 @@ final class DocumentViewModel {
     // MARK: - Search
 
     /// Run a search using grep/rg.
-    func performSearch() {
-        guard !searchQuery.isEmpty, let _ = mappedFile else { return }
+    func performSearch(query: String) {
+        guard !query.isEmpty, let _ = mappedFile else { return }
 
         searchTask?.cancel()
         searchGeneration += 1
         let generation = searchGeneration
         isSearching = true
         searchError = nil
-        let query = searchQuery
 
         searchTask = Task {
             defer {
@@ -269,7 +267,6 @@ final class DocumentViewModel {
 
     func clearSearch() {
         cancelSearch()
-        searchQuery = ""
         searchResults = []
         searchError = nil
     }

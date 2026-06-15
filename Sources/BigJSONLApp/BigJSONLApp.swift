@@ -6,6 +6,7 @@ import AppKit
 struct BigJSONLApp: App {
     @State private var tabs: [TabItem] = []
     @State private var selectedTabID: UUID = UUID()
+    @State private var searchQuery: String = ""
 
     var body: some Scene {
         WindowGroup {
@@ -20,7 +21,7 @@ struct BigJSONLApp: App {
 
                 if let tab = selectedTab {
                     if let document = tab.document {
-                        ContentView(document: document)
+                        ContentView(document: document, searchQuery: $searchQuery)
                             .id(tab.id)
                     } else {
                         welcomeView
