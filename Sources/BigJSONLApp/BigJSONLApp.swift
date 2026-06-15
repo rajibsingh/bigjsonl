@@ -57,10 +57,21 @@ struct BigJSONLApp: App {
     }
 
     private func openFile() {
-        if let url = FileOpenHandler.openFile() {
-            // Start accessing security-scoped resource
-            _ = url.startAccessingSecurityScopedResource()
-            documentURL = url
+        guard let url = FileOpenHandler.openFile() else { return }
+
+        // Validate file extension
+        guard FileOpenHandler.isSupportedFile(url) else {
+            let alert = NSAlert()
+            alert.messageText = "Unsupported File Type"
+            alert.informativeText = "Please select a .jsonl or .json file."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
         }
+
+        // Start accessing security-scoped resource
+        _ = url.startAccessingSecurityScopedResource()
+        documentURL = url
     }
 }

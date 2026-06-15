@@ -7,7 +7,7 @@ enum FileOpenHandler {
     ///
     /// Unlike SwiftUI's `fileImporter`, this panel:
     /// - Shows hidden files (dotfiles) so users can browse `~/.pi/` directories
-    /// - Supports both `.jsonl` and `.json` extensions
+    /// - Accepts any file type (validation happens after selection)
     /// - Remembers the last-opened directory
     @MainActor
     static func openFile() -> URL? {
@@ -21,13 +21,18 @@ enum FileOpenHandler {
         panel.showsHiddenFiles = true
         panel.treatsFilePackagesAsDirectories = false
 
-        // Allow both .jsonl and .json
-        panel.allowedContentTypes = [.jsonl, .json]
-
-        // Also allow all files as a fallback (in case the UTType isn't registered)
+        // Don't filter by content type — accept any file.
+        // We validate the extension in openFile() instead.
+        panel.allowedContentTypes = []
         panel.allowsOtherFileTypes = true
 
         let response = panel.runModal()
         return response == .OK ? panel.url : nil
+    }
+
+    /// Returns true if the file at the given URL is a supported type (.jsonl, .json).
+    static func isSupportedFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "jsonl" || ext == "json"
     }
 }
