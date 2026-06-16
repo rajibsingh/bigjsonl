@@ -1,6 +1,24 @@
 import Foundation
 import Dispatch
 
+/// Holds per-chunk results written from `DispatchQueue.concurrentPerform`.
+/// Safe as `@unchecked Sendable` because each chunk index is written by
+/// exactly one concurrent iteration and never read until all iterations
+/// complete.
+private final class ChunkResultsBox: @unchecked Sendable {
+    private var storage: [[UInt64]]
+
+    init(count: Int) {
+        storage = [[UInt64]](repeating: [], count: count)
+    }
+
+    func store(_ offsets: [UInt64], at index: Int) {
+        storage[index] = offsets
+    }
+
+    var values: [[UInt64]] { storage }
+}
+
 /// A lazy, incremental mapping from 1-based line numbers to byte offsets
 /// within a JSONL file.
 ///
@@ -82,6 +100,30 @@ public struct LineOffsetIndex: Sendable {
             entries.append((1, 0))
         }
 
+        // A short forward scan (the common incremental case — the user has
+        // scrolled a bit further) stays on the single-pass byte scanner: it
+        // stops as soon as the target line is found, so it doesn't waste work
+        // scanning past it.
+        let remaining = fileSize - scanOffset
+        if remaining <= Self.parallelScanThreshold {
+            scanSequentially(upTo: line, fileSize: fileSize, mappedFile: mappedFile)
+            return
+        }
+
+        // A long-distance jump (e.g. opening near EOF of a multi-GB file) has
+        // to scan a large span regardless of where the target line lands, so
+        // counting newlines in disjoint byte chunks in parallel pays off. The
+        // per-chunk counts are merged back into `entries` sequentially since
+        // line numbers are a prefix sum over newline counts.
+        scanInParallel(upTo: line, fileSize: fileSize, mappedFile: mappedFile)
+    }
+
+    /// Below this many remaining bytes, scanning forward in parallel chunks
+    /// has more overhead (task spawn, per-chunk array allocation) than it
+    /// saves versus the single-pass scanner.
+    private static let parallelScanThreshold: UInt64 = 4 * 1024 * 1024
+
+    private mutating func scanSequentially(upTo line: UInt64, fileSize: UInt64, mappedFile: MappedFile) {
         while entries.last!.0 < line && scanOffset < fileSize {
             let chunkSize: UInt64 = min(256 * 1024, fileSize - scanOffset) // 256KB chunks
             let foundTarget = mappedFile.withUnsafeBytes(offset: scanOffset, length: chunkSize) { bytes in
@@ -106,6 +148,68 @@ public struct LineOffsetIndex: Sendable {
         if scanOffset == fileSize {
             reachedEOF = true
         }
+    }
+
+    /// Counts newlines from `scanOffset` to `fileSize` by splitting the span
+    /// into disjoint chunks and scanning each chunk's byte range concurrently
+    /// (read-only access into the mmap via `MappedFile.withUnsafeBytes`, safe
+    /// across chunks since regions don't overlap). The per-chunk newline
+    /// offsets are then merged into `entries` in chunk order — this merge
+    /// must stay sequential because each line number depends on the count of
+    /// newlines that came before it.
+    private mutating func scanInParallel(upTo line: UInt64, fileSize: UInt64, mappedFile: MappedFile) {
+        let scanStart = scanOffset
+        let totalSpan = fileSize - scanStart
+        let chunkCount = min(
+            max(ProcessInfo.processInfo.activeProcessorCount, 1),
+            Int((totalSpan + Self.parallelScanThreshold - 1) / Self.parallelScanThreshold)
+        )
+        let chunkSize = (totalSpan + UInt64(chunkCount) - 1) / UInt64(chunkCount)
+
+        var chunkRanges: [Range<UInt64>] = []
+        var chunkStart = scanStart
+        while chunkStart < fileSize {
+            let chunkEnd = min(chunkStart + chunkSize, fileSize)
+            chunkRanges.append(chunkStart..<chunkEnd)
+            chunkStart = chunkEnd
+        }
+
+        // Newline byte offsets within each chunk, found independently and
+        // written into disjoint indices of a shared results box. Concurrent
+        // writes never touch the same index, so this is safe despite the box
+        // being `@unchecked Sendable`.
+        let chunkRangesSnapshot = chunkRanges
+        let results = ChunkResultsBox(count: chunkRangesSnapshot.count)
+        DispatchQueue.concurrentPerform(iterations: chunkRangesSnapshot.count) { chunkIndex in
+            let range = chunkRangesSnapshot[chunkIndex]
+            var offsets: [UInt64] = []
+            _ = mappedFile.withUnsafeBytes(offset: range.lowerBound, length: range.upperBound - range.lowerBound) { bytes in
+                for (i, byte) in bytes.enumerated() where byte == UInt8(ascii: "\n") {
+                    offsets.append(range.lowerBound + UInt64(i))
+                }
+            }
+            results.store(offsets, at: chunkIndex)
+        }
+        let newlineOffsetsByChunk = results.values
+
+        // Merge sequentially: each newline at offset `o` (with o < fileSize - 1,
+        // matching the sequential scanner's "no entry for a trailing EOF
+        // newline" rule) starts a new line at o + 1. The full span up to
+        // fileSize was already scanned in parallel above, so the merge keeps
+        // every entry it finds rather than stopping at the requested line —
+        // that work has already been paid for and the index might as well
+        // reflect it, matching the sequential scanner's EOF-reached state.
+        for offsets in newlineOffsetsByChunk {
+            for offset in offsets {
+                let nextOffset = offset + 1
+                guard nextOffset < fileSize else { continue }
+                let nextLine = entries.last!.0 + 1
+                entries.append((nextLine, nextOffset))
+            }
+        }
+
+        scanOffset = fileSize
+        reachedEOF = true
     }
 
     /// Returns the byte range of the given line, if indexed.

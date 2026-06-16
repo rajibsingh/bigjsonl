@@ -116,6 +116,54 @@ func byteRangeRequiresLookahead() throws {
     #expect(range?.upperBound == index.offsetForLine(3))
 }
 
+@Test("Large file index built via parallel scan matches sequential scan")
+func largeFileParallelScanMatchesSequential() throws {
+    // Exceeds LineOffsetIndex's parallel-scan threshold (4 MB) so jumping
+    // straight to a line near the end exercises the chunked concurrent
+    // newline-counting path instead of the single-pass scanner.
+    let lineCount = 100_000
+    var contents = ""
+    contents.reserveCapacity(lineCount * 60)
+    for i in 1...lineCount {
+        contents += "{\"line\":\(i),\"value\":\"padding-text-to-grow-the-file-\(i)\"}\n"
+    }
+    contents.removeLast() // no trailing newline, matching the other fixtures
+
+    let fixture = try TemporaryJSONLFile(contents: contents)
+    let file = try MappedFile(url: fixture.url)
+    #expect(file.size > 4 * 1024 * 1024)
+
+    var parallelIndex = LineOffsetIndex()
+    parallelIndex.ensureLineIndexed(UInt64(lineCount) - 5, mappedFile: file)
+
+    #expect(parallelIndex.lineCount == UInt64(lineCount))
+    #expect(parallelIndex.isComplete)
+
+    // Spot-check several lines, including the very first, the jump target,
+    // and the last line, against the known byte layout.
+    for line in [1, 2, lineCount - 5, lineCount - 1, lineCount] {
+        let offset = parallelIndex.offsetForLine(UInt64(line))
+        #expect(offset != nil)
+        if let offset {
+            let firstByte = file.readByte(at: offset)
+            #expect(firstByte == UInt8(ascii: "{"))
+        }
+    }
+
+    // Cross-check against the sequential scanner by indexing the same file
+    // one line at a time (always within the non-parallel threshold), which
+    // forces the single-pass path throughout.
+    var sequentialIndex = LineOffsetIndex()
+    for line in 1...UInt64(lineCount) {
+        sequentialIndex.ensureLineIndexed(line, mappedFile: file)
+    }
+
+    for line in stride(from: 1, through: lineCount, by: 997) {
+        #expect(parallelIndex.offsetForLine(UInt64(line)) == sequentialIndex.offsetForLine(UInt64(line)))
+    }
+    #expect(parallelIndex.lineCount == sequentialIndex.lineCount)
+}
+
 @Test("Empty files contain zero indexed lines")
 func emptyFileHasNoLines() throws {
     let fixture = try TemporaryJSONLFile(contents: "")

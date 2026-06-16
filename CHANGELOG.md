@@ -16,6 +16,7 @@
 ### Changed
 - Parallelize per-line viewport preparation (mmap read, UTF-8 decode, JSON validity check) across a `TaskGroup` instead of a single serial loop, speeding up window loads on multi-core Macs while preserving line order.
 - CLI `renderWindow` now tokenizes each line in the requested window concurrently via a `TaskGroup`, printing results in line-number order afterward; the CLI's `run()` became `async` (`AsyncParsableCommand`) to support this.
+- `LineOffsetIndex.ensureLineIndexed` counts newlines across disjoint byte chunks in parallel (via `DispatchQueue.concurrentPerform`) when a long-distance jump (e.g. opening near EOF of a multi-GB file) requires scanning more than 4 MB; short incremental scans stay on the original single-pass scanner. Since the full remaining span is scanned regardless of where the target line lands, the parallel path now indexes through EOF rather than stopping at the requested line, so later navigation in the same file skips re-scanning.
 - Smooth main-pane scrolling with an overscanned moving viewport that preloads buffered rows before and after the visible line list while keeping existing rows rendered during background loads.
 - Reduce retained memory for content-heavy files by storing bounded line-list previews and loading full selected-line text only for the inspector.
 - Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.

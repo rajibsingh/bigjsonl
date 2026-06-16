@@ -158,6 +158,8 @@ struct FileRegion {
   next-line boundary or the physical EOF is known
 - Stores a sorted array of `(lineNumber: UInt64, byteOffset: UInt64)` pairs
 - On `seek(toLine:)`: if the line is indexed, use it; if not, scan forward from the last indexed byte offset until the target line is reached
+- Short forward scans (< 4 MB remaining) use a single-pass byte scanner that stops as soon as the target line is found
+- Long-distance jumps (≥ 4 MB remaining, e.g. opening near EOF of a multi-GB file) count newlines across disjoint byte chunks in parallel via `DispatchQueue.concurrentPerform`, then merge the per-chunk newline offsets into `entries` sequentially (line numbers are a prefix sum over newline counts, so the merge can't parallelize). Since the parallel scan already covers the full remaining span, it indexes through EOF rather than stopping at the requested line — later navigation in the same file is then a direct lookup
 - `readWindow(fromLine:count:)` returns `[FileRegion]` — one per line in the window
 - Index can be serialized/deserialized for future persistence but isn't persisted in v0.1
 
@@ -362,6 +364,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-16 | Viewport preparation and inspector formatting are cancellable background work | Keeps scrolling, resizing, tab changes, and rapid line selection responsive for content-heavy records. |
 | 2026-06-16 | Viewport line reads parallelized via `TaskGroup` within the detached preparation task | Each line's mmap read, decode, and JSON validity check is independent and CPU-bound; `MappedFile` (`@unchecked Sendable`, read-only mmap) and `LineOffsetIndex` (`Sendable` value type) are safe to read concurrently, so splitting the window across cores speeds up large windows without added data-race risk. |
 | 2026-06-16 | CLI `renderWindow` tokenizes its line window via `TaskGroup`, `BigJSONL` became `AsyncParsableCommand` | Tokenization is the expensive, independent per-line step; printing stays strictly ordered and sequential after the parallel pass so stdout output is unaffected. `DispatchQueue.concurrentPerform` was tried first but triggers Swift 6 strict-concurrency warnings on mutable captures; `TaskGroup` matches the pattern already used for viewport loading and has no such warnings. |
+| 2026-06-16 | `LineOffsetIndex` parallel newline-counting for long-distance jumps, kept as a synchronous `mutating func` | `ensureLineIndexed` is called from both async and (in unit tests) synchronous contexts, and is a value-type mutating method, not a natural fit for `async`/`TaskGroup` without changing its public signature and every call site. `DispatchQueue.concurrentPerform` writing into a small `@unchecked Sendable` results box (disjoint-index writes only) keeps the method synchronous while still parallelizing the newline count; the index-to-line-number merge stays strictly sequential since it's a prefix sum. |
 
 ## Distribution
 
