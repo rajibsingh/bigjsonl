@@ -43,6 +43,10 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.openFile()
+            if let first = viewModel.visibleLines.first {
+                selectedLine = first.lineNumber
+                viewModel.prepareInspector(for: first)
+            }
         }
         .onDisappear {
             viewModel.cancelSearch()
