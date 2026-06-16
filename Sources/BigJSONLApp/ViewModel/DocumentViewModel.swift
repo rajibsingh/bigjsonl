@@ -37,8 +37,12 @@ final class DocumentViewModel {
     @ObservationIgnored private var inspectorCache: [UInt64: JSONDisplayContent] = [:]
     @ObservationIgnored private var inspectorCacheOrder: [UInt64] = []
 
-    /// The number of lines to keep in the viewport buffer (above and below the visible area).
-    private let bufferSize: UInt64 = 20
+    /// The number of lines to keep in the bounded viewport window.
+    private var viewportLineCount: UInt64 = 41
+    private let minimumViewportLineCount: UInt64 = 41
+    private let viewportOverlap: UInt64 = 1
+    private let estimatedLineRowHeight: CGFloat = 14
+    private let viewportFillPadding: UInt64 = 8
 
     // MARK: - Initialization
 
@@ -58,7 +62,7 @@ final class DocumentViewModel {
             self.index = document.index
 
             // Load the initial window
-            try loadWindow(around: 1)
+            try loadWindow(startingAt: 1)
         } catch {
             errorMessage = "Failed to open file: \(error.localizedDescription)"
         }
@@ -83,21 +87,56 @@ final class DocumentViewModel {
         isLoading = false
     }
 
+    /// Resize the bounded line window so the loaded rows fill the visible pane.
+    func updateViewportHeight(_ height: CGFloat) {
+        guard height.isFinite, height > 0 else { return }
+
+        let estimatedRows = UInt64((height / estimatedLineRowHeight).rounded(.up))
+        let desiredCount = max(
+            minimumViewportLineCount,
+            estimatedRows + viewportFillPadding
+        )
+
+        guard desiredCount != viewportLineCount else { return }
+        viewportLineCount = desiredCount
+
+        guard mappedFile != nil, !visibleLines.isEmpty else { return }
+        replaceWindow(startingAt: firstVisibleLine)
+    }
+
     /// Load the viewport buffer around a center line.
     private func loadWindow(around centerLine: UInt64) throws {
+        let safeCenter = max(centerLine, 1)
+        let halfWindow = viewportLineCount / 2
+        let startLine = safeCenter > halfWindow ? safeCenter - halfWindow : 1
+        try loadWindow(startingAt: startLine)
+    }
+
+    /// Load a bounded viewport window starting at the requested line.
+    private func loadWindow(startingAt requestedStartLine: UInt64) throws {
         guard let file = mappedFile else { return }
 
-        let safeCenter = max(centerLine, 1)
-        let startLine = safeCenter > bufferSize ? safeCenter - bufferSize : 1
-        let endLine = safeCenter > UInt64.max - bufferSize
+        let requestedStartLine = max(requestedStartLine, 1)
+        let requestedEndLine = requestedStartLine > UInt64.max - (viewportLineCount - 1)
             ? UInt64.max
-            : safeCenter + bufferSize
+            : requestedStartLine + viewportLineCount - 1
 
         // Index one line beyond the window so every displayed byte range has
         // either a known next-line boundary or a confirmed EOF.
-        let lookaheadLine = endLine == UInt64.max ? endLine : endLine + 1
+        let lookaheadLine = requestedEndLine == UInt64.max ? requestedEndLine : requestedEndLine + 1
         index.ensureLineIndexed(lookaheadLine, mappedFile: file)
         self.totalLines = index.lineCount
+
+        guard totalLines > 0 else {
+            visibleLines = []
+            firstVisibleLine = 1
+            return
+        }
+
+        let startLine = min(requestedStartLine, totalLines)
+        let endLine = startLine > UInt64.max - (viewportLineCount - 1)
+            ? UInt64.max
+            : startLine + viewportLineCount - 1
 
         // Read and tokenize each line in the window
         var lines: [LineInfo] = []
@@ -122,25 +161,38 @@ final class DocumentViewModel {
     /// Advances the bounded viewport while retaining an overlap for scroll anchoring.
     func loadNextWindow() {
         guard !isLoading, let lastVisible = visibleLines.last?.lineNumber else { return }
-        let center = lastVisible > UInt64.max - bufferSize
-            ? UInt64.max
-            : lastVisible + bufferSize
-        replaceWindow(around: center)
+        let startLine = lastVisible > viewportOverlap
+            ? lastVisible - viewportOverlap + 1
+            : 1
+        replaceWindow(startingAt: startLine)
     }
 
     /// Moves the bounded viewport backward while retaining an overlap for scroll anchoring.
     func loadPreviousWindow() {
         guard !isLoading else { return }
-        let center = firstVisibleLine > bufferSize
-            ? firstVisibleLine - bufferSize
+        let step = viewportLineCount > viewportOverlap
+            ? viewportLineCount - viewportOverlap
             : 1
-        replaceWindow(around: center)
+        let startLine = firstVisibleLine > step
+            ? firstVisibleLine - step
+            : 1
+        replaceWindow(startingAt: startLine)
     }
 
     private func replaceWindow(around line: UInt64) {
         isLoading = true
         do {
             try loadWindow(around: line)
+        } catch {
+            errorMessage = "Error reading file: \(error.localizedDescription)"
+        }
+        isLoading = false
+    }
+
+    private func replaceWindow(startingAt line: UInt64) {
+        isLoading = true
+        do {
+            try loadWindow(startingAt: line)
         } catch {
             errorMessage = "Error reading file: \(error.localizedDescription)"
         }

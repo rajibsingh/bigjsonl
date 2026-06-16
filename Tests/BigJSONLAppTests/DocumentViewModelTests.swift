@@ -12,18 +12,34 @@ func viewportNavigation() throws {
 
     viewModel.openFile()
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
-    #expect(viewModel.visibleLines.last?.lineNumber == 21)
+    #expect(viewModel.visibleLines.last?.lineNumber == 41)
     #expect(viewModel.visibleLines.allSatisfy { $0.tokens.isEmpty })
     #expect(viewModel.canLoadNextWindow)
 
     viewModel.loadNextWindow()
-    #expect(viewModel.visibleLines.first?.lineNumber == 21)
-    #expect(viewModel.visibleLines.last?.lineNumber == 61)
-    #expect(viewModel.visibleLines.last?.text == "{\"line\":61,\"value\":\"match\"}")
+    #expect(viewModel.visibleLines.first?.lineNumber == 41)
+    #expect(viewModel.visibleLines.last?.lineNumber == 81)
+    #expect(viewModel.visibleLines.last?.text == "{\"line\":81,\"value\":\"match\"}")
 
     viewModel.loadPreviousWindow()
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
-    #expect(viewModel.visibleLines.last?.lineNumber == 21)
+    #expect(viewModel.visibleLines.last?.lineNumber == 41)
+}
+
+@MainActor
+@Test("Viewport grows to fill a taller line pane")
+func viewportGrowsToFillTallerPane() throws {
+    let fixture = try AppTestJSONLFile(lineCount: 200)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+
+    viewModel.openFile()
+    viewModel.updateViewportHeight(1_000)
+
+    #expect(viewModel.visibleLines.first?.lineNumber == 1)
+    #expect((viewModel.visibleLines.last?.lineNumber ?? 0) > 70)
+    #expect(viewModel.canLoadNextWindow)
 }
 
 @MainActor

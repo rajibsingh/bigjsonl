@@ -111,6 +111,17 @@ struct ContentView: View {
         }
         .scrollPosition($scrollPosition)
         .defaultScrollAnchor(.top)
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        viewModel.updateViewportHeight(proxy.size.height)
+                    }
+                    .onChange(of: proxy.size.height) { _, height in
+                        viewModel.updateViewportHeight(height)
+                    }
+            }
+        }
         .onScrollPhaseChange { oldPhase, newPhase, context in
             guard newPhase == .idle, oldPhase.isScrolling else { return }
             loadWindowIfNeeded(for: context.geometry)

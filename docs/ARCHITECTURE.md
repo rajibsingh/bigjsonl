@@ -259,7 +259,8 @@ class BigJSONLDocument: ReferenceFileDocument {
 #### Scroll-driven viewport
 
 - Uses `ScrollPosition` binding (macOS 15) for programmatic scrolling to search results
-- Renders only a bounded overlapping line window
+- Renders only a bounded overlapping line window sized from the left pane height,
+  so taller windows load enough rows to fill the visible area
 - An end-of-user-scroll geometry check loads the previous or next window and
   preserves a shared line ID as the scroll anchor, allowing continuous navigation
   without mutating viewport state during initial layout
@@ -354,4 +355,3 @@ The GUI app requires a signed and notarized `.app` bundle to avoid Gatekeeper di
 - A versioned `.dmg` or `.zip` archive hosted as a GitHub release asset
 
 Once those are in place, add `Casks/bigjsonl.rb` to the tap pointing at the signed archive.
-

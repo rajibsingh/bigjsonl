@@ -14,6 +14,7 @@
 - `\n` escape sequences inside JSON string values are expanded into a visible `\n` marker followed by a real line break in both the line list and the inspector content pane, improving readability of content-heavy records.
 
 ### Fixed
+- Grow the loaded line viewport from the left-pane height so resizing tall windows fills the pane instead of showing a misleading blank area.
 - Clarify active tab styling in dark mode with stronger fill, border, and accent underline.
 - Search query disappearing while typing and not persisting across tab switches — moved `searchQuery` state and the search toolbar out of `ContentView` into `BigJSONLApp` so the text field is never torn down on re-render or tab switch.
 - File open doing nothing — `selectedTabID` was initialised to a different `UUID` than `tabs[0].id`, so `selectedTab` was always `nil`; fixed by creating the first `TabItem` and capturing its `id` together in `.onAppear`. `TabItem` also marked `@Observable` so mutations to `url`/`document` trigger SwiftUI re-renders.
