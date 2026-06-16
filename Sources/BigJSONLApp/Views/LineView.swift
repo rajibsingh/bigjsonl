@@ -33,7 +33,7 @@ struct LineView: View {
     // MARK: - Syntax-highlighted content
 
     private var highlightedContent: some View {
-        Text(lineInfo.text)
+        Text(lineInfo.text.replacingOccurrences(of: "\\n", with: "\\n\n"))
             .lineLimit(3)
             .truncationMode(.tail)
             .padding(.leading, 4)
