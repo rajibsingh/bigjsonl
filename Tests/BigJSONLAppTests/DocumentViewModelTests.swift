@@ -75,6 +75,34 @@ func viewportGrowsToFillTallerPane() async throws {
 }
 
 @MainActor
+@Test("Viewport rows keep bounded previews while inspector loads full content")
+func viewportRowsUseBoundedPreviews() async throws {
+    let payload = String(repeating: "x", count: 20_000)
+    let fixture = try AppTestJSONLFile(contents: #"{"payload":"\#(payload)"}"#)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+
+    viewModel.openFile()
+    try await waitForLoading(viewModel)
+
+    let line = try #require(viewModel.visibleLines.first)
+    #expect(line.isTextTruncated)
+    #expect(line.text.count < 7_000)
+
+    viewModel.prepareInspector(for: line)
+    for _ in 0..<200 where viewModel.isPreparingInspector {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+
+    let content = try #require(viewModel.inspectorContent)
+    #expect(content.text.contains(payload))
+
+    viewModel.releaseInspectorDisplayState()
+    #expect(viewModel.inspectorContent == nil)
+}
+
+@MainActor
 @Test("Inspector content prepares asynchronously and reuses its cache")
 func inspectorPreparationIsCached() async throws {
     let fixture = try AppTestJSONLFile(lineCount: 2)
@@ -154,12 +182,16 @@ private func waitForLoading(
 private final class AppTestJSONLFile {
     let url: URL
 
-    init(lineCount: Int) throws {
-        url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("bigjsonl-app-test-\(UUID().uuidString).jsonl")
+    convenience init(lineCount: Int) throws {
         let contents = (1...lineCount)
             .map { "{\"line\":\($0),\"value\":\"match\"}" }
             .joined(separator: "\n")
+        try self.init(contents: contents)
+    }
+
+    init(contents: String) throws {
+        url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bigjsonl-app-test-\(UUID().uuidString).jsonl")
         try Data(contents.utf8).write(to: url)
     }
 

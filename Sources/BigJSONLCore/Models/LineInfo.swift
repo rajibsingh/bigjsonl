@@ -8,8 +8,14 @@ public struct LineInfo: Equatable, Sendable {
     public let byteLength: UInt64
     /// Whether the line was successfully parsed as JSON.
     public let isValidJSON: Bool
-    /// The raw text of the line (without the trailing newline).
+    /// Display text for this line (without the trailing newline).
+    ///
+    /// UI callers may store a bounded preview here to keep large viewport
+    /// windows memory-efficient. Use `isTextTruncated` to distinguish previews
+    /// from complete line text.
     public let text: String
+    /// Whether `text` is a bounded preview rather than the full line.
+    public let isTextTruncated: Bool
     /// Syntax tokens for this line, if parsing succeeded.
     public let tokens: [Token]
 
@@ -19,6 +25,7 @@ public struct LineInfo: Equatable, Sendable {
         byteLength: UInt64,
         isValidJSON: Bool,
         text: String,
+        isTextTruncated: Bool = false,
         tokens: [Token]
     ) {
         self.lineNumber = lineNumber
@@ -26,6 +33,7 @@ public struct LineInfo: Equatable, Sendable {
         self.byteLength = byteLength
         self.isValidJSON = isValidJSON
         self.text = text
+        self.isTextTruncated = isTextTruncated
         self.tokens = tokens
     }
 }

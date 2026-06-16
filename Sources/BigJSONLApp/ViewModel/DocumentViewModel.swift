@@ -46,6 +46,7 @@ final class DocumentViewModel {
     private let viewportOverlap: UInt64 = 1
     private let estimatedLineRowHeight: CGFloat = 14
     private let viewportFillPadding: UInt64 = 8
+    private let maximumInspectorCacheEntries = 1
 
     // MARK: - Initialization
 
@@ -207,10 +208,16 @@ final class DocumentViewModel {
         inspectorContent = nil
         isPreparingInspector = true
         let lineNumber = lineInfo.lineNumber
-        let text = lineInfo.text
         let isValid = lineInfo.isValidJSON
+        let file = mappedFile
+        let indexSnapshot = index
         let formattingTask = Task.detached(priority: .userInitiated) {
-            try JSONFormatter.displayContentCancellable(text, isValid: isValid)
+            let text = try ViewportLoader.fullText(
+                for: lineNumber,
+                file: file,
+                index: indexSnapshot
+            )
+            return try JSONFormatter.displayContentCancellable(text, isValid: isValid)
         }
         inspectorFormattingTask = formattingTask
 
@@ -229,7 +236,7 @@ final class DocumentViewModel {
                 }
             } catch {
                 if inspectorLineNumber == lineNumber {
-                    inspectorContent = JSONFormatter.displayContent(text, isValid: false)
+                    inspectorContent = JSONFormatter.displayContent(lineInfo.text, isValid: false)
                     isPreparingInspector = false
                 }
             }
@@ -240,7 +247,7 @@ final class DocumentViewModel {
         inspectorCache[line] = content
         touchInspectorCache(line)
 
-        while inspectorCacheOrder.count > 3 {
+        while inspectorCacheOrder.count > maximumInspectorCacheEntries {
             let evicted = inspectorCacheOrder.removeFirst()
             inspectorCache.removeValue(forKey: evicted)
         }
@@ -313,16 +320,20 @@ final class DocumentViewModel {
         isPreparingInspector = false
     }
 
-    func dispose() {
-        cancelViewportLoad()
-        cancelSearch()
+    func releaseInspectorDisplayState() {
         cancelInspectorPreparation()
-        mappedFile = nil
-        visibleLines = []
-        searchResults = []
         inspectorContent = nil
         inspectorCache.removeAll()
         inspectorCacheOrder.removeAll()
+    }
+
+    func dispose() {
+        cancelViewportLoad()
+        cancelSearch()
+        releaseInspectorDisplayState()
+        mappedFile = nil
+        visibleLines = []
+        searchResults = []
     }
 }
 
@@ -334,6 +345,8 @@ private struct LoadedViewport: Sendable {
 }
 
 private enum ViewportLoader {
+    private static let maximumPreviewCharacters = 6_000
+
     static func load(
         startingAt requestedStartLine: UInt64,
         count: UInt64,
@@ -396,15 +409,46 @@ private enum ViewportLoader {
         let rawData = Data(data)
 
         guard let text = String(data: rawData, encoding: .utf8) else { return nil }
-        let displayText = text.trimmingCharacters(in: ["\n", "\r"])
+        let fullText = text.trimmingCharacters(in: ["\n", "\r"])
+        let preview = previewText(for: fullText)
 
         return LineInfo(
             lineNumber: lineNum,
             byteOffset: offset,
             byteLength: length,
-            isValidJSON: JSONTokenizer.isValid(displayText),
-            text: displayText,
+            isValidJSON: JSONTokenizer.isValid(fullText),
+            text: preview.text,
+            isTextTruncated: preview.isTruncated,
             tokens: []
         )
+    }
+
+    static func fullText(
+        for lineNum: UInt64,
+        file: MappedFile?,
+        index: LineOffsetIndex
+    ) throws -> String {
+        guard let file,
+              let offset = index.offsetForLine(lineNum),
+              let range = index.byteRangeForLine(lineNum, fileSize: file.size) else {
+            throw CancellationError()
+        }
+
+        let length = range.upperBound - range.lowerBound
+        let data = file.read(offset: offset, length: length)
+        let rawData = Data(data)
+        guard let text = String(data: rawData, encoding: .utf8) else {
+            return "<invalid UTF-8>"
+        }
+        return text.trimmingCharacters(in: ["\n", "\r"])
+    }
+
+    private static func previewText(for text: String) -> (text: String, isTruncated: Bool) {
+        guard text.count > maximumPreviewCharacters else {
+            return (text, false)
+        }
+
+        let end = text.index(text.startIndex, offsetBy: maximumPreviewCharacters)
+        return (String(text[..<end]) + "...", true)
     }
 }

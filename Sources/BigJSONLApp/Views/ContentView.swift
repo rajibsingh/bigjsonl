@@ -47,7 +47,7 @@ struct ContentView: View {
         }
         .onDisappear {
             viewModel.cancelSearch()
-            viewModel.cancelInspectorPreparation()
+            viewModel.releaseInspectorDisplayState()
         }
         .onChange(of: viewModel.visibleLines.map(\.lineNumber)) { _, _ in
             prepareSelectionIfPossible(viewModel.visibleLines)

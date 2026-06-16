@@ -271,6 +271,8 @@ class BigJSONLDocument: ReferenceFileDocument {
   without mutating viewport state during initial layout
 - Each line is rendered as plain monospace text; viewport rows do not build an
   unused syntax token stream
+- Viewport rows store bounded display previews instead of full line text; the
+  inspector re-reads the selected full line from the mmap on demand
 - Line rows are limited to three visual lines with tail truncation so a single
   large JSON value cannot dominate the scrolling viewport
 
@@ -290,9 +292,12 @@ class BigJSONLDocument: ReferenceFileDocument {
 
 - Metadata remains fixed above a full-height `Content` pane
 - Valid JSON is pretty-printed and tokenized in a detached task so selecting a large record does not block the main actor; stale results are discarded
+- Full selected-line text is read from the memory mapping on demand instead of
+  being retained in every visible row
 - The detached formatting task is cancelled directly, and formatter/tokenizer
   loops cooperatively check cancellation while processing large records
-- Prepared content is retained in a three-entry cache for fast reselection
+- Prepared content is retained in a one-entry cache for fast reselection without
+  holding multiple content-heavy formatted records per tab
 - An AppKit `NSTextView` renders a single attributed string instead of creating one SwiftUI `Text` node per syntax token; ASCII records use token byte ranges directly as UTF-16 ranges
 - `\n` escape sequences inside JSON string values are expanded to `\n` + a real newline in the `NSAttributedString` after syntax highlighting, preserving token colours and JSON validity while improving readability of content-heavy records; the same substitution is applied in `LineView` for the line list
 - Invalid JSON is shown unchanged and remains selectable
