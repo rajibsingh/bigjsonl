@@ -16,12 +16,14 @@
 ### Changed
 - Parallelize per-line viewport preparation (mmap read, UTF-8 decode, JSON validity check) across a `TaskGroup` instead of a single serial loop, speeding up window loads on multi-core Macs while preserving line order.
 - CLI `renderWindow` now tokenizes each line in the requested window concurrently via a `TaskGroup`, printing results in line-number order afterward; the CLI's `run()` became `async` (`AsyncParsableCommand`) to support this.
-- `LineOffsetIndex.ensureLineIndexed` counts newlines across disjoint byte chunks in parallel (via `DispatchQueue.concurrentPerform`) when a long-distance jump (e.g. opening near EOF of a multi-GB file) requires scanning more than 4 MB; short incremental scans stay on the original single-pass scanner. Since the full remaining span is scanned regardless of where the target line lands, the parallel path now indexes through EOF rather than stopping at the requested line, so later navigation in the same file skips re-scanning.
+- `LineOffsetIndex.ensureLineIndexed` counts newlines across disjoint byte chunks in parallel (via `DispatchQueue.concurrentPerform`) when a long-distance jump (e.g. opening near EOF of a multi-GB file) requires scanning more than 4 MB; short incremental scans stay on the original single-pass scanner.
 - Smooth main-pane scrolling with an overscanned moving viewport that preloads buffered rows before and after the visible line list while keeping existing rows rendered during background loads.
 - Reduce retained memory for content-heavy files by storing bounded line-list previews and loading full selected-line text only for the inspector.
 - Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.
 
 ### Fixed
+- Bound the memory and CPU cost of `LineOffsetIndex`'s parallel long-distance scan: a single jump (e.g. opening near EOF of a multi-GB file) now caps the scanned span at a bounded, doubling lookahead instead of always scanning to the literal end of the file, so `entries` no longer grows to the file's full line count when only a nearby window is needed. The scan also bails out before starting if its enclosing `Task` was already cancelled.
+- Read viewport and CLI line text directly from the mapped bytes (`MappedFile.withUnsafeBytes`) instead of copying through an intermediate `DispatchData` → `Data` step, removing a redundant per-line allocation that's now exercised by many more concurrent `TaskGroup` reads per window.
 - Coalesce repeated main-pane edge scroll events so one momentum gesture does not load several viewport windows in sequence.
 - Keep the selected line's inspector visible when main-pane scrolling moves that line out of the loaded viewport.
 - Re-prepare inspector content after tab switches so selected loaded rows do not show "Content unavailable."

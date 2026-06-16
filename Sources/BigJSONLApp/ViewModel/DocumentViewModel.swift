@@ -469,10 +469,10 @@ private enum ViewportLoader {
         guard let range = index.byteRangeForLine(lineNum, fileSize: file.size) else { return nil }
 
         let length = range.upperBound - range.lowerBound
-        let data = file.read(offset: offset, length: length)
-        let rawData = Data(data)
-
-        guard let text = String(data: rawData, encoding: .utf8) else { return nil }
+        let text: String? = length == 0
+            ? ""
+            : file.withUnsafeBytes(offset: offset, length: length) { String(bytes: $0, encoding: .utf8) } ?? nil
+        guard let text else { return nil }
         let fullText = text.trimmingCharacters(in: ["\n", "\r"])
         let preview = previewText(for: fullText)
 
@@ -499,9 +499,10 @@ private enum ViewportLoader {
         }
 
         let length = range.upperBound - range.lowerBound
-        let data = file.read(offset: offset, length: length)
-        let rawData = Data(data)
-        guard let text = String(data: rawData, encoding: .utf8) else {
+        let text: String? = length == 0
+            ? ""
+            : file.withUnsafeBytes(offset: offset, length: length) { String(bytes: $0, encoding: .utf8) } ?? nil
+        guard let text else {
             return "<invalid UTF-8>"
         }
         return text.trimmingCharacters(in: ["\n", "\r"])

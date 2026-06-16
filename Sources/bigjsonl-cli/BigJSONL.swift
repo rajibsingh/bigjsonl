@@ -156,14 +156,14 @@ struct BigJSONL: AsyncParsableCommand {
                     }
 
                     let lineLength = range.upperBound - range.lowerBound
-                    let data = mappedFile.read(offset: offset, length: lineLength)
-
                     let lineText: String
-                    if data.isEmpty {
+                    if lineLength == 0 {
                         lineText = ""
                     } else {
-                        let rawData = Data(data)
-                        if let str = String(data: rawData, encoding: .utf8) {
+                        let decoded = mappedFile.withUnsafeBytes(offset: offset, length: lineLength) {
+                            String(bytes: $0, encoding: .utf8)
+                        } ?? nil
+                        if let str = decoded {
                             lineText = str.trimmingCharacters(in: ["\n", "\r"])
                         } else {
                             lineText = "<invalid UTF-8>"

@@ -158,58 +158,124 @@ public struct LineOffsetIndex: Sendable {
     /// must stay sequential because each line number depends on the count of
     /// newlines that came before it.
     private mutating func scanInParallel(upTo line: UInt64, fileSize: UInt64, mappedFile: MappedFile) {
-        let scanStart = scanOffset
-        let totalSpan = fileSize - scanStart
-        let chunkCount = min(
-            max(ProcessInfo.processInfo.activeProcessorCount, 1),
-            Int((totalSpan + Self.parallelScanThreshold - 1) / Self.parallelScanThreshold)
-        )
-        let chunkSize = (totalSpan + UInt64(chunkCount) - 1) / UInt64(chunkCount)
+        // `concurrentPerform` blocks the calling thread until every chunk
+        // finishes, so once started it can't be interrupted mid-flight by the
+        // caller's enclosing `Task` cancellation. Checking here at least
+        // avoids starting the scan at all if the caller was already
+        // cancelled before this method ran (e.g. the user navigated away
+        // while this call was queued behind other work).
+        if Task.isCancelled { return }
 
-        var chunkRanges: [Range<UInt64>] = []
-        var chunkStart = scanStart
-        while chunkStart < fileSize {
-            let chunkEnd = min(chunkStart + chunkSize, fileSize)
-            chunkRanges.append(chunkStart..<chunkEnd)
-            chunkStart = chunkEnd
-        }
+        // The target may already be satisfied by an entry seeded before any
+        // scanning happens (e.g. line 1 is always known at offset 0 once
+        // `entries` is non-empty), in which case there's nothing to scan for.
+        if entries.last!.0 >= line { return }
 
-        // Newline byte offsets within each chunk, found independently and
-        // written into disjoint indices of a shared results box. Concurrent
-        // writes never touch the same index, so this is safe despite the box
-        // being `@unchecked Sendable`.
-        let chunkRangesSnapshot = chunkRanges
-        let results = ChunkResultsBox(count: chunkRangesSnapshot.count)
-        DispatchQueue.concurrentPerform(iterations: chunkRangesSnapshot.count) { chunkIndex in
-            let range = chunkRangesSnapshot[chunkIndex]
-            var offsets: [UInt64] = []
-            _ = mappedFile.withUnsafeBytes(offset: range.lowerBound, length: range.upperBound - range.lowerBound) { bytes in
-                for (i, byte) in bytes.enumerated() where byte == UInt8(ascii: "\n") {
-                    offsets.append(range.lowerBound + UInt64(i))
+        // Cap the scan span at a bounded lookahead past the estimated byte
+        // position of the target line rather than always scanning to
+        // `fileSize`. This keeps `entries` from growing to the file's full
+        // line count on a single long-distance jump. If the estimate
+        // undershoots (lines longer than average), the loop below doubles
+        // the lookahead and retries rather than ever stopping short of the
+        // requested line.
+        let averageLineLength = entries.count > 1
+            ? max((entries.last!.1 - entries.first!.1) / UInt64(entries.count - 1), 1)
+            : 64
+        var lookaheadBuffer = Self.parallelScanThreshold
+
+        while true {
+            let scanStart = scanOffset
+            let estimatedTargetOffset = scanStart + (line - entries.last!.0) * averageLineLength
+            var scanEnd = min(estimatedTargetOffset + lookaheadBuffer, fileSize)
+            // If what's left past the window is itself within one threshold,
+            // just include it. Otherwise a window that lands just short of
+            // `fileSize` could discover the file's true last line without
+            // ever setting `reachedEOF` (since there are no more newlines to
+            // find, but nothing here would know that without scanning the
+            // small remainder), leaving `byteRangeForLine` unable to return
+            // a range for that last line until some later call extends the
+            // scan further.
+            if fileSize - scanEnd <= Self.parallelScanThreshold {
+                scanEnd = fileSize
+            }
+            let totalSpan = scanEnd - scanStart
+
+            let chunkCount = min(
+                max(ProcessInfo.processInfo.activeProcessorCount, 1),
+                Int((totalSpan + Self.parallelScanThreshold - 1) / Self.parallelScanThreshold)
+            )
+            let chunkSize = (totalSpan + UInt64(chunkCount) - 1) / UInt64(chunkCount)
+
+            var chunkRanges: [Range<UInt64>] = []
+            var chunkStart = scanStart
+            while chunkStart < scanEnd {
+                let chunkEnd = min(chunkStart + chunkSize, scanEnd)
+                chunkRanges.append(chunkStart..<chunkEnd)
+                chunkStart = chunkEnd
+            }
+
+            // Newline byte offsets within each chunk, found independently and
+            // written into disjoint indices of a shared results box.
+            // Concurrent writes never touch the same index, so this is safe
+            // despite the box being `@unchecked Sendable`. Reserve capacity
+            // per chunk from the line-length estimate so each chunk's
+            // offsets array doesn't reallocate as it grows via `append`.
+            let estimatedNewlinesPerChunk = Int(chunkSize / averageLineLength) + 1
+            let chunkRangesSnapshot = chunkRanges
+            let results = ChunkResultsBox(count: chunkRangesSnapshot.count)
+            DispatchQueue.concurrentPerform(iterations: chunkRangesSnapshot.count) { chunkIndex in
+                let range = chunkRangesSnapshot[chunkIndex]
+                var offsets: [UInt64] = []
+                offsets.reserveCapacity(estimatedNewlinesPerChunk)
+                _ = mappedFile.withUnsafeBytes(offset: range.lowerBound, length: range.upperBound - range.lowerBound) { bytes in
+                    for (i, byte) in bytes.enumerated() where byte == UInt8(ascii: "\n") {
+                        offsets.append(range.lowerBound + UInt64(i))
+                    }
+                }
+                results.store(offsets, at: chunkIndex)
+            }
+            let newlineOffsetsByChunk = results.values
+
+            // Merge sequentially: each newline at offset `o` (with
+            // o < fileSize - 1, matching the sequential scanner's "no entry
+            // for a trailing EOF newline" rule) starts a new line at o + 1.
+            // Keep every entry found in the scanned span rather than
+            // stopping at the target — the parallel pass already paid the
+            // cost of scanning the whole `scanStart..<scanEnd` span, and
+            // `scanOffset` must advance to `scanEnd` (not just to the
+            // target's offset) so that a later call for a nearby line
+            // doesn't redo the same scan from the same starting point.
+            let totalNewlines = newlineOffsetsByChunk.reduce(0) { $0 + $1.count }
+            entries.reserveCapacity(entries.count + totalNewlines)
+            for offsets in newlineOffsetsByChunk {
+                for offset in offsets {
+                    let nextOffset = offset + 1
+                    guard nextOffset < fileSize else { continue }
+                    let nextLine = entries.last!.0 + 1
+                    entries.append((nextLine, nextOffset))
                 }
             }
-            results.store(offsets, at: chunkIndex)
-        }
-        let newlineOffsetsByChunk = results.values
 
-        // Merge sequentially: each newline at offset `o` (with o < fileSize - 1,
-        // matching the sequential scanner's "no entry for a trailing EOF
-        // newline" rule) starts a new line at o + 1. The full span up to
-        // fileSize was already scanned in parallel above, so the merge keeps
-        // every entry it finds rather than stopping at the requested line —
-        // that work has already been paid for and the index might as well
-        // reflect it, matching the sequential scanner's EOF-reached state.
-        for offsets in newlineOffsetsByChunk {
-            for offset in offsets {
-                let nextOffset = offset + 1
-                guard nextOffset < fileSize else { continue }
-                let nextLine = entries.last!.0 + 1
-                entries.append((nextLine, nextOffset))
+            let foundTarget = entries.last!.0 >= line
+
+            if scanEnd >= fileSize {
+                scanOffset = fileSize
+                reachedEOF = true
+                return
             }
-        }
 
-        scanOffset = fileSize
-        reachedEOF = true
+            scanOffset = scanEnd
+
+            if foundTarget {
+                return
+            }
+
+            // The lookahead estimate undershot (lines are longer than
+            // average in this region, or the target is further away than
+            // the first guess); retry with a larger buffer from the new
+            // `scanOffset` instead of restarting from scratch.
+            lookaheadBuffer *= 2
+        }
     }
 
     /// Returns the byte range of the given line, if indexed.

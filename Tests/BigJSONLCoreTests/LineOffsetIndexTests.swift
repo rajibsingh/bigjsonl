@@ -134,14 +134,17 @@ func largeFileParallelScanMatchesSequential() throws {
     #expect(file.size > 4 * 1024 * 1024)
 
     var parallelIndex = LineOffsetIndex()
-    parallelIndex.ensureLineIndexed(UInt64(lineCount) - 5, mappedFile: file)
+    let targetLine = UInt64(lineCount) - 5
+    parallelIndex.ensureLineIndexed(targetLine, mappedFile: file)
 
-    #expect(parallelIndex.lineCount == UInt64(lineCount))
-    #expect(parallelIndex.isComplete)
+    // The parallel scan always indexes at least up to the requested line —
+    // it may index further (up to its bounded lookahead window, or through
+    // EOF if the lookahead reaches the end of the file), but never less.
+    #expect(parallelIndex.lineCount >= targetLine)
 
-    // Spot-check several lines, including the very first, the jump target,
-    // and the last line, against the known byte layout.
-    for line in [1, 2, lineCount - 5, lineCount - 1, lineCount] {
+    // Spot-check lines up to and including the jump target against the
+    // known byte layout.
+    for line in [1, 2, Int(targetLine) - 1, Int(targetLine)] {
         let offset = parallelIndex.offsetForLine(UInt64(line))
         #expect(offset != nil)
         if let offset {
@@ -154,14 +157,61 @@ func largeFileParallelScanMatchesSequential() throws {
     // one line at a time (always within the non-parallel threshold), which
     // forces the single-pass path throughout.
     var sequentialIndex = LineOffsetIndex()
-    for line in 1...UInt64(lineCount) {
+    for line in 1...targetLine {
         sequentialIndex.ensureLineIndexed(line, mappedFile: file)
     }
 
-    for line in stride(from: 1, through: lineCount, by: 997) {
+    for line in stride(from: 1, through: Int(targetLine), by: 997) {
         #expect(parallelIndex.offsetForLine(UInt64(line)) == sequentialIndex.offsetForLine(UInt64(line)))
     }
-    #expect(parallelIndex.lineCount == sequentialIndex.lineCount)
+}
+
+@Test("Parallel scan jumping to EOF indexes the whole file and marks it complete")
+func largeFileParallelScanToEOF() throws {
+    let lineCount = 100_000
+    var contents = ""
+    contents.reserveCapacity(lineCount * 60)
+    for i in 1...lineCount {
+        contents += "{\"line\":\(i),\"value\":\"padding-text-to-grow-the-file-\(i)\"}\n"
+    }
+    contents.removeLast()
+
+    let fixture = try TemporaryJSONLFile(contents: contents)
+    let file = try MappedFile(url: fixture.url)
+    #expect(file.size > 4 * 1024 * 1024)
+
+    var index = LineOffsetIndex()
+    // Request a line far beyond EOF, forcing the parallel scanner to run out
+    // of newlines and fall through to the EOF-reached state.
+    index.ensureLineIndexed(UInt64(lineCount) + 1_000, mappedFile: file)
+
+    #expect(index.lineCount == UInt64(lineCount))
+    #expect(index.isComplete)
+}
+
+@Test("A jump well before EOF bounds the parallel scan instead of indexing the whole file")
+func jumpBeforeEOFStaysBounded() throws {
+    // Large enough that a jump near the start, even with the lookahead
+    // buffer's doubling on undershoot, is very unlikely to reach EOF.
+    let lineCount = 400_000
+    var contents = ""
+    contents.reserveCapacity(lineCount * 60)
+    for i in 1...lineCount {
+        contents += "{\"line\":\(i),\"value\":\"padding-text-to-grow-the-file-\(i)\"}\n"
+    }
+    contents.removeLast()
+
+    let fixture = try TemporaryJSONLFile(contents: contents)
+    let file = try MappedFile(url: fixture.url)
+    #expect(file.size > 16 * 1024 * 1024)
+
+    var index = LineOffsetIndex()
+    index.ensureLineIndexed(2, mappedFile: file)
+
+    #expect(index.offsetForLine(2) != nil)
+    #expect(index.lineCount >= 2)
+    #expect(index.lineCount < UInt64(lineCount))
+    #expect(!index.isComplete)
 }
 
 @Test("Empty files contain zero indexed lines")
@@ -175,4 +225,35 @@ func emptyFileHasNoLines() throws {
     #expect(index.lineCount == 0)
     #expect(index.isComplete)
     #expect(index.byteRangeForLine(1, fileSize: file.size) == nil)
+}
+
+@Test("Repeated nearby long-distance jumps do not repeatedly rescan the same span")
+func repeatedNearbyJumpsStayFast() throws {
+    // Regression coverage for a bug where each call's early-stop advanced
+    // `scanOffset` only to the found target's offset instead of to the full
+    // scanned span, causing every subsequent call to redo an almost-identical
+    // multi-megabyte parallel scan. Calling ensureLineIndexed once per line
+    // across a file just over the parallel-scan threshold should complete
+    // quickly, not take quadratic time.
+    let lineCount = 100_000
+    var contents = ""
+    contents.reserveCapacity(lineCount * 60)
+    for i in 1...lineCount {
+        contents += "{\"line\":\(i),\"value\":\"padding-text-to-grow-the-file-\(i)\"}\n"
+    }
+    contents.removeLast()
+    let fixture = try TemporaryJSONLFile(contents: contents)
+    let file = try MappedFile(url: fixture.url)
+    #expect(file.size > 4 * 1024 * 1024)
+
+    var index = LineOffsetIndex()
+    let start = Date()
+    for line in 1...UInt64(lineCount) {
+        index.ensureLineIndexed(line, mappedFile: file)
+    }
+    let elapsed = Date().timeIntervalSince(start)
+
+    #expect(index.lineCount == UInt64(lineCount))
+    #expect(index.isComplete)
+    #expect(elapsed < 5.0)
 }
