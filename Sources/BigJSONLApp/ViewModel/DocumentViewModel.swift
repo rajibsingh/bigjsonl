@@ -33,6 +33,7 @@ final class DocumentViewModel {
 
     // MARK: - Inspector state
     var inspectorContent: JSONDisplayContent?
+    var inspectorLineInfo: LineInfo?
     var inspectorLineNumber: UInt64?
     var isPreparingInspector = false
     @ObservationIgnored private var inspectorTask: Task<Void, Never>?
@@ -207,6 +208,7 @@ final class DocumentViewModel {
 
     func prepareInspector(for lineInfo: LineInfo) {
         cancelInspectorPreparation()
+        inspectorLineInfo = lineInfo
         inspectorLineNumber = lineInfo.lineNumber
 
         if let cached = inspectorCache[lineInfo.lineNumber] {
@@ -333,6 +335,7 @@ final class DocumentViewModel {
 
     func releaseInspectorDisplayState() {
         cancelInspectorPreparation()
+        inspectorLineInfo = nil
         inspectorLineNumber = nil
         inspectorContent = nil
         inspectorCache.removeAll()

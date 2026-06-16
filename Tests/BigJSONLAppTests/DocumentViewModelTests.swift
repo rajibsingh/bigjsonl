@@ -122,6 +122,7 @@ func viewportRowsUseBoundedPreviews() async throws {
 
     viewModel.releaseInspectorDisplayState()
     #expect(viewModel.inspectorContent == nil)
+    #expect(viewModel.inspectorLineInfo == nil)
     #expect(viewModel.inspectorLineNumber == nil)
 }
 
@@ -169,13 +170,40 @@ func inspectorPreparationRecoversAfterRelease() async throws {
 
     viewModel.releaseInspectorDisplayState()
     #expect(viewModel.inspectorLineNumber == nil)
+    #expect(viewModel.inspectorLineInfo == nil)
     #expect(viewModel.inspectorContent == nil)
 
     viewModel.prepareInspector(for: line)
     try await waitForInspectorPreparation(viewModel)
 
     #expect(viewModel.inspectorLineNumber == line.lineNumber)
+    #expect(viewModel.inspectorLineInfo?.lineNumber == line.lineNumber)
     #expect(viewModel.inspectorContent == firstContent)
+}
+
+@MainActor
+@Test("Inspector keeps selected line metadata after viewport moves away")
+func inspectorMetadataSurvivesViewportMovement() async throws {
+    let fixture = try AppTestJSONLFile(lineCount: 500)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+    viewModel.openFile()
+    try await waitForLoading(viewModel)
+    let selectedLine = try #require(viewModel.visibleLines.first)
+
+    viewModel.prepareInspector(for: selectedLine)
+    try await waitForInspectorPreparation(viewModel)
+    let selectedContent = try #require(viewModel.inspectorContent)
+
+    while viewModel.visibleLines.contains(where: { $0.lineNumber == selectedLine.lineNumber }) {
+        viewModel.loadNextWindow()
+        try await waitForLoading(viewModel)
+    }
+
+    #expect(viewModel.inspectorLineNumber == selectedLine.lineNumber)
+    #expect(viewModel.inspectorLineInfo?.lineNumber == selectedLine.lineNumber)
+    #expect(viewModel.inspectorContent == selectedContent)
 }
 
 @MainActor
@@ -216,6 +244,7 @@ func disposingViewModelClearsState() async throws {
     #expect(viewModel.visibleLines.isEmpty)
     #expect(viewModel.searchResults.isEmpty)
     #expect(viewModel.inspectorContent == nil)
+    #expect(viewModel.inspectorLineInfo == nil)
 }
 
 @MainActor

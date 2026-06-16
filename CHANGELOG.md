@@ -19,6 +19,7 @@
 - Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.
 
 ### Fixed
+- Keep the selected line's inspector visible when main-pane scrolling moves that line out of the loaded viewport.
 - Re-prepare inspector content after tab switches so selected loaded rows do not show "Content unavailable."
 - Prevent extra scrolling at EOF from jumping the line list back toward the beginning of the file.
 - Grow the loaded line viewport from the left-pane height so resizing tall windows fills the pane instead of showing a misleading blank area.

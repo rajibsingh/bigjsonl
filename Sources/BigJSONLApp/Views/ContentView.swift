@@ -245,7 +245,8 @@ struct LineInspectorView: View {
             Text("Line \(lineNumber)")
                 .font(.headline)
 
-            if let lineInfo = viewModel.visibleLines.first(where: { $0.lineNumber == lineNumber }) {
+            if let lineInfo = viewModel.inspectorLineInfo,
+               lineInfo.lineNumber == lineNumber {
                 Group {
                     LabeledContent("Offset") {
                         Text("\(lineInfo.byteOffset) bytes")
