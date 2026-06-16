@@ -97,7 +97,7 @@ struct ContentView: View {
                     Text(error)
                         .foregroundStyle(.red)
                         .padding()
-                } else if viewModel.isLoading {
+                } else if viewModel.isLoading && viewModel.visibleLines.isEmpty {
                     ProgressView("Opening file...")
                         .padding()
                 } else if viewModel.visibleLines.isEmpty {
@@ -139,9 +139,14 @@ struct ContentView: View {
                     }
             }
         }
+        .onScrollGeometryChange(for: LineListScrollState.self) { geometry in
+            LineListScrollState(geometry: geometry)
+        } action: { _, state in
+            loadWindowIfNeeded(for: state)
+        }
         .onScrollPhaseChange { oldPhase, newPhase, context in
             guard newPhase == .idle, oldPhase.isScrolling else { return }
-            loadWindowIfNeeded(for: context.geometry)
+            loadWindowIfNeeded(for: LineListScrollState(geometry: context.geometry))
         }
     }
 
@@ -181,25 +186,51 @@ struct ContentView: View {
     }
 
 
-    private func loadWindowIfNeeded(for geometry: ScrollGeometry) {
-        let threshold: CGFloat = 24
-        let distanceFromBottom = geometry.contentSize.height - geometry.visibleRect.maxY
+    private func loadWindowIfNeeded(for state: LineListScrollState) {
+        guard !viewModel.isLoading, !viewModel.visibleLines.isEmpty else { return }
+        let preloadDistance = max(state.visibleHeight * 0.8, 48)
+        let anchor = estimatedLine(at: state.visibleMidY, contentHeight: state.contentHeight)
 
-        if distanceFromBottom <= threshold, viewModel.canLoadNextWindow {
-            let anchor = viewModel.visibleLines.last?.lineNumber
-            viewModel.loadNextWindow()
-            if let anchor {
-                scrollPosition.scrollTo(id: anchor, anchor: .bottom)
-            }
-        } else if geometry.visibleRect.minY <= threshold,
-                  distanceFromBottom > threshold,
+        if state.distanceFromBottom <= preloadDistance, viewModel.canLoadNextWindow {
+            viewModel.loadNextWindow(preserving: anchor)
+        } else if state.visibleMinY <= preloadDistance,
+                  state.distanceFromBottom > preloadDistance,
                   viewModel.canLoadPreviousWindow {
-            let anchor = viewModel.visibleLines.first?.lineNumber
-            viewModel.loadPreviousWindow()
-            if let anchor {
-                scrollPosition.scrollTo(id: anchor, anchor: .top)
-            }
+            viewModel.loadPreviousWindow(preserving: anchor)
         }
+    }
+
+    private func estimatedLine(at yPosition: CGFloat, contentHeight: CGFloat) -> UInt64? {
+        guard let firstLine = viewModel.visibleLines.first?.lineNumber,
+              contentHeight.isFinite,
+              contentHeight > 0 else {
+            return nil
+        }
+
+        let averageRowHeight = contentHeight / CGFloat(viewModel.visibleLines.count)
+        guard averageRowHeight.isFinite, averageRowHeight > 0 else {
+            return firstLine
+        }
+
+        let rawOffset = Int((max(0, yPosition) / averageRowHeight).rounded(.down))
+        let clampedOffset = min(max(rawOffset, 0), viewModel.visibleLines.count - 1)
+        return firstLine + UInt64(clampedOffset)
+    }
+}
+
+private struct LineListScrollState: Equatable {
+    let visibleMinY: CGFloat
+    let visibleMidY: CGFloat
+    let visibleHeight: CGFloat
+    let distanceFromBottom: CGFloat
+    let contentHeight: CGFloat
+
+    init(geometry: ScrollGeometry) {
+        visibleMinY = geometry.visibleRect.minY
+        visibleMidY = geometry.visibleRect.midY
+        visibleHeight = geometry.visibleRect.height
+        distanceFromBottom = geometry.contentSize.height - geometry.visibleRect.maxY
+        contentHeight = geometry.contentSize.height
     }
 }
 

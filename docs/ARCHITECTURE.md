@@ -102,10 +102,10 @@ LineOffsetIndex.hasLine(N)?
                     └── Append entries to LineOffsetIndex
        │
        ▼
-Read a bounded overlapping window
+Read a bounded overscan window
        │
        ▼
-Edge sentinels shift the window while preserving a stable anchor
+Scroll geometry preloads and recenters the window before an edge is hit
 ```
 
 ### Search
@@ -261,14 +261,16 @@ class BigJSONLDocument: ReferenceFileDocument {
 #### Scroll-driven viewport
 
 - Uses `ScrollPosition` binding (macOS 15) for programmatic scrolling to search results
-- Renders only a bounded overlapping line window sized from the left pane height,
-  so taller windows load enough rows to fill the visible area
+- Renders only a bounded overscan line window sized from the left pane height:
+  roughly one visible pane plus one buffered pane before and after the current
+  scroll position
 - Viewport preparation runs in a cancellable detached task; indexing, decoding,
   and JSON validation happen off the main actor before the completed row window
   is published back to SwiftUI
-- An end-of-user-scroll geometry check loads the previous or next window and
-  preserves a shared line ID as the scroll anchor, allowing continuous navigation
-  without mutating viewport state during initial layout
+- Continuous scroll geometry checks preload the previous or next window before
+  the user reaches the loaded edge, preserving an estimated center line as the
+  scroll anchor. Existing rows stay rendered while the next window is prepared,
+  avoiding visible loading interruptions during normal line-list scrolling.
 - Each line is rendered as plain monospace text; viewport rows do not build an
   unused syntax token stream
 - Viewport rows store bounded display previews instead of full line text; the
@@ -336,7 +338,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Trailing newline at EOF doesn't create a line entry | Prevents off-by-one when the last byte of the file is `\n`. |
 | 2026-06-15 | Line ranges require lookahead or confirmed EOF | Prevents a partially indexed boundary line from reading through the remainder of a large file. |
 | 2026-06-15 | Search results are capped and asynchronously cancellable | Keeps broad searches from blocking the app or consuming memory proportional to all matches. |
-| 2026-06-15 | Scroll navigation uses bounded overlapping windows | End-of-user-scroll geometry checks enable continuous browsing while avoiding state mutation during initial SwiftUI layout. |
+| 2026-06-16 | Scroll navigation uses bounded overscan windows | Continuous scroll geometry preloads the next or previous buffered window before the user reaches an edge, while the visible rows remain rendered during the background load. |
 | 2026-06-15 | Inspector preparation runs off the main actor and uses AppKit text rendering | Keeps selection responsive for content-heavy records while preserving selectable syntax-highlighted output. |
 | 2026-06-15 | Search results replace the line list in the left pane rather than a separate column | Avoids invasive `NavigationSplitView` restructuring; the existing two-column layout (line list + inspector) is preserved with a clean swap. |
 | 2026-06-15 | Custom SwiftUI tab bar rather than native `NSWindow` automatic tabbing | Native tabbing treats each tab as a separate `WindowGroup` window, making shared tab bar state and the "new tab → welcome screen" flow impractical. Custom tab bar keeps all state in one place. |

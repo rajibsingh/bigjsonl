@@ -41,9 +41,9 @@ final class DocumentViewModel {
     @ObservationIgnored private var inspectorCacheOrder: [UInt64] = []
 
     /// The number of lines to keep in the bounded viewport window.
-    private var viewportLineCount: UInt64 = 41
-    private let minimumViewportLineCount: UInt64 = 41
-    private let viewportOverlap: UInt64 = 1
+    private var viewportLineCount: UInt64 = 123
+    private let minimumVisibleLineCount: UInt64 = 41
+    private let viewportOverscanMultiplier: UInt64 = 3
     private let estimatedLineRowHeight: CGFloat = 14
     private let viewportFillPadding: UInt64 = 8
     private let maximumInspectorCacheEntries = 1
@@ -92,15 +92,26 @@ final class DocumentViewModel {
 
         let estimatedRows = UInt64((height / estimatedLineRowHeight).rounded(.up))
         let desiredCount = max(
-            minimumViewportLineCount,
+            minimumVisibleLineCount,
             estimatedRows + viewportFillPadding
-        )
+        ) * viewportOverscanMultiplier
 
         guard desiredCount != viewportLineCount else { return }
         viewportLineCount = desiredCount
 
         guard mappedFile != nil, !visibleLines.isEmpty else { return }
         scheduleViewportLoad(startingAt: firstVisibleLine)
+    }
+
+    var loadedLineCount: UInt64 {
+        viewportLineCount
+    }
+
+    var visiblePaneLineEstimate: UInt64 {
+        max(
+            minimumVisibleLineCount,
+            viewportLineCount / viewportOverscanMultiplier
+        )
     }
 
     private func startLine(around centerLine: UInt64) -> UInt64 {
@@ -118,26 +129,26 @@ final class DocumentViewModel {
         return !index.isComplete || lastVisible < totalLines
     }
 
-    /// Advances the bounded viewport while retaining an overlap for scroll anchoring.
-    func loadNextWindow() {
+    /// Advances the bounded viewport while retaining buffered rows for scroll anchoring.
+    func loadNextWindow(preserving anchorLine: UInt64? = nil) {
         guard !isLoading, canLoadNextWindow,
               let lastVisible = visibleLines.last?.lineNumber else { return }
-        let startLine = lastVisible > viewportOverlap
-            ? lastVisible - viewportOverlap + 1
-            : 1
-        scheduleViewportLoad(startingAt: startLine)
+        let step = max(visiblePaneLineEstimate, 1)
+        let requestedStart = firstVisibleLine > UInt64.max - step
+            ? UInt64.max
+            : firstVisibleLine + step
+        let startLine = min(requestedStart, lastVisible)
+        scheduleViewportLoad(startingAt: startLine, requestedScrollLine: anchorLine)
     }
 
-    /// Moves the bounded viewport backward while retaining an overlap for scroll anchoring.
-    func loadPreviousWindow() {
+    /// Moves the bounded viewport backward while retaining buffered rows for scroll anchoring.
+    func loadPreviousWindow(preserving anchorLine: UInt64? = nil) {
         guard !isLoading, canLoadPreviousWindow else { return }
-        let step = viewportLineCount > viewportOverlap
-            ? viewportLineCount - viewportOverlap
-            : 1
+        let step = max(visiblePaneLineEstimate, 1)
         let startLine = firstVisibleLine > step
             ? firstVisibleLine - step
             : 1
-        scheduleViewportLoad(startingAt: startLine)
+        scheduleViewportLoad(startingAt: startLine, requestedScrollLine: anchorLine)
     }
 
     private func scheduleViewportLoad(

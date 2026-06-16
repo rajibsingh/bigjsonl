@@ -3,9 +3,9 @@ import Testing
 @testable import BigJSONLApp
 
 @MainActor
-@Test("Viewport advances and retreats with bounded overlapping windows")
+@Test("Viewport advances and retreats with bounded overscan windows")
 func viewportNavigation() async throws {
-    let fixture = try AppTestJSONLFile(lineCount: 100)
+    let fixture = try AppTestJSONLFile(lineCount: 300)
     let viewModel = DocumentViewModel(
         document: BigJSONLDocument(url: fixture.url)
     )
@@ -13,20 +13,42 @@ func viewportNavigation() async throws {
     viewModel.openFile()
     try await waitForLoading(viewModel)
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
-    #expect(viewModel.visibleLines.last?.lineNumber == 41)
+    #expect(viewModel.visibleLines.last?.lineNumber == viewModel.loadedLineCount)
     #expect(viewModel.visibleLines.allSatisfy { $0.tokens.isEmpty })
     #expect(viewModel.canLoadNextWindow)
 
     viewModel.loadNextWindow()
     try await waitForLoading(viewModel)
-    #expect(viewModel.visibleLines.first?.lineNumber == 41)
-    #expect(viewModel.visibleLines.last?.lineNumber == 81)
-    #expect(viewModel.visibleLines.last?.text == "{\"line\":81,\"value\":\"match\"}")
+    #expect(viewModel.visibleLines.first?.lineNumber == viewModel.visiblePaneLineEstimate + 1)
+    #expect(viewModel.visibleLines.last?.lineNumber == viewModel.visiblePaneLineEstimate + viewModel.loadedLineCount)
+    #expect(viewModel.visibleLines.last?.text == "{\"line\":\(viewModel.visiblePaneLineEstimate + viewModel.loadedLineCount),\"value\":\"match\"}")
 
     viewModel.loadPreviousWindow()
     try await waitForLoading(viewModel)
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
-    #expect(viewModel.visibleLines.last?.lineNumber == 41)
+    #expect(viewModel.visibleLines.last?.lineNumber == viewModel.loadedLineCount)
+}
+
+@MainActor
+@Test("Viewport keeps buffered rows before and after the visible pane")
+func viewportKeepsOverscanBuffer() async throws {
+    let fixture = try AppTestJSONLFile(lineCount: 500)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+
+    viewModel.openFile()
+    try await waitForLoading(viewModel)
+
+    #expect(viewModel.loadedLineCount >= viewModel.visiblePaneLineEstimate * 3)
+
+    viewModel.loadNextWindow()
+    try await waitForLoading(viewModel)
+
+    let firstLine = try #require(viewModel.visibleLines.first?.lineNumber)
+    let lastLine = try #require(viewModel.visibleLines.last?.lineNumber)
+    #expect(firstLine == viewModel.visiblePaneLineEstimate + 1)
+    #expect(lastLine - firstLine + 1 == viewModel.loadedLineCount)
 }
 
 @MainActor
@@ -70,8 +92,8 @@ func viewportGrowsToFillTallerPane() async throws {
     try await waitForLoading(viewModel)
 
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
-    #expect((viewModel.visibleLines.last?.lineNumber ?? 0) > 70)
-    #expect(viewModel.canLoadNextWindow)
+    #expect(viewModel.visibleLines.last?.lineNumber == 200)
+    #expect(!viewModel.canLoadNextWindow)
 }
 
 @MainActor
