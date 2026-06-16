@@ -66,10 +66,13 @@ struct ContentView: View {
         }
 
         guard let selectedLine,
-              let lineInfo = lines.first(where: { $0.lineNumber == selectedLine }),
-              viewModel.inspectorLineNumber != selectedLine else {
+              let lineInfo = lines.first(where: { $0.lineNumber == selectedLine }) else {
             return
         }
+
+        let inspectorAlreadyPrepared = viewModel.inspectorLineNumber == selectedLine
+            && (viewModel.isPreparingInspector || viewModel.inspectorContent != nil)
+        guard !inspectorAlreadyPrepared else { return }
 
         viewModel.prepareInspector(for: lineInfo)
     }

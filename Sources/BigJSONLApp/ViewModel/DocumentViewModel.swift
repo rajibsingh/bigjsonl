@@ -322,6 +322,7 @@ final class DocumentViewModel {
 
     func releaseInspectorDisplayState() {
         cancelInspectorPreparation()
+        inspectorLineNumber = nil
         inspectorContent = nil
         inspectorCache.removeAll()
         inspectorCacheOrder.removeAll()

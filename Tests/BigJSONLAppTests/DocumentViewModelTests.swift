@@ -100,6 +100,7 @@ func viewportRowsUseBoundedPreviews() async throws {
 
     viewModel.releaseInspectorDisplayState()
     #expect(viewModel.inspectorContent == nil)
+    #expect(viewModel.inspectorLineNumber == nil)
 }
 
 @MainActor
@@ -127,6 +128,32 @@ func inspectorPreparationIsCached() async throws {
     viewModel.prepareInspector(for: line)
     #expect(!viewModel.isPreparingInspector)
     #expect(viewModel.inspectorContent == prepared)
+}
+
+@MainActor
+@Test("Inspector content can be prepared again after tab state is released")
+func inspectorPreparationRecoversAfterRelease() async throws {
+    let fixture = try AppTestJSONLFile(lineCount: 2)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+    viewModel.openFile()
+    try await waitForLoading(viewModel)
+    let line = try #require(viewModel.visibleLines.first)
+
+    viewModel.prepareInspector(for: line)
+    try await waitForInspectorPreparation(viewModel)
+    let firstContent = try #require(viewModel.inspectorContent)
+
+    viewModel.releaseInspectorDisplayState()
+    #expect(viewModel.inspectorLineNumber == nil)
+    #expect(viewModel.inspectorContent == nil)
+
+    viewModel.prepareInspector(for: line)
+    try await waitForInspectorPreparation(viewModel)
+
+    #expect(viewModel.inspectorLineNumber == line.lineNumber)
+    #expect(viewModel.inspectorContent == firstContent)
 }
 
 @MainActor
@@ -177,6 +204,16 @@ private func waitForLoading(
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(!viewModel.isLoading)
+}
+
+@MainActor
+private func waitForInspectorPreparation(
+    _ viewModel: DocumentViewModel
+) async throws {
+    for _ in 0..<200 where viewModel.isPreparingInspector {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(!viewModel.isPreparingInspector)
 }
 
 private final class AppTestJSONLFile {

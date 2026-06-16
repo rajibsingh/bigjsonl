@@ -18,6 +18,7 @@
 - Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.
 
 ### Fixed
+- Re-prepare inspector content after tab switches so selected loaded rows do not show "Content unavailable."
 - Prevent extra scrolling at EOF from jumping the line list back toward the beginning of the file.
 - Grow the loaded line viewport from the left-pane height so resizing tall windows fills the pane instead of showing a misleading blank area.
 - Clarify active tab styling in dark mode with stronger fill, border, and accent underline.
