@@ -133,8 +133,9 @@ Jump viewport to first match (or show result list)
 #### FileIO
 
 - Uses `mmap` via `DispatchData` for zero-copy access to file regions
-- No-copy `DispatchData` regions retain their `MappedFile` owner so the mapping
-  cannot be unmapped while a returned slice is still alive
+- File is opened with `O_RDONLY` + `MAP_PRIVATE` — no write lock is held, so the app can safely view files being actively written by another process
+- The mmap captures file size at open time; content appended after open is not visible until the file is reloaded
+- No-copy `DispatchData` regions retain their `MappedFile` owner so the mapping cannot be unmapped while a returned slice is still alive
 - Provides `FileRegion(url:, offset:, length:)` — a lightweight reference to a byte range
 - Handles line-boundary detection (newline, carriage-return-newline, trailing newline edge cases)
 - Exposes `totalFileSize` and `numberOfNewlines` (the latter from the index, not a full scan)
@@ -236,6 +237,7 @@ USAGE: bigjsonl <file> [--line <n>] [--search <pattern>] [--no-color]
 - `BigJSONLApp` holds `@State private var tabs: [TabItem]`, `selectedTabID: UUID`, and `searchQuery: String`; `TabBarView` and the search toolbar are rendered above the active tab's `ContentView`
 - `TabBarView` — horizontal strip of tab chips (filename or "New Tab"), × close button per tab, + button at the right end; scrollable when many tabs are open
 - ⌘T opens a new empty tab; ⌘O opens a file picker with multiple selection — first file reuses the current tab if empty, each additional file gets its own new tab
+- ⌘R (and a toolbar button) reloads the current tab's file from scratch via `TabItem.reload()`, which replaces the `BigJSONLDocument` and `DocumentViewModel` with fresh instances; search is cleared on reload
 - Switching tabs re-runs the current search query against the new tab's view model automatically
 - Closing the last tab resets it to empty rather than quitting, matching macOS convention
 - Native `NSWindow.allowsAutomaticWindowTabbing` is left at its default; the custom tab bar makes system-level tab merging irrelevant
@@ -327,6 +329,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-16 | `DocumentViewModel` owned by `TabItem`, not `ContentView` | `ContentView` carries `.id(tab.id)` and is torn down on tab switch; owning the view model in `TabItem` keeps search results, scroll state, and inspector cache alive across switches. |
 | 2026-06-16 | Search toolbar lifted to `BigJSONLApp`, `searchQuery` as top-level `@State` | Text field inside `ContentView` was destroyed mid-keystroke on re-render. Moving it outside the tab lifecycle gives a stable owner for the shared query string. |
 | 2026-06-16 | `\n` expansion applied post-tokenization in `NSAttributedString`, not in `prettyPrinted` | Inserting real newlines inside string values during formatting breaks JSON validity and confuses the tokenizer. Doing it as a find-replace on the finished attributed string preserves colours and correctness. |
+| 2026-06-16 | `O_RDONLY` + `MAP_PRIVATE` mmap — no write lock held | Files being actively written by another process can be safely viewed. New content appended after open is not visible until ⌘R reload, which replaces the mapping entirely. |
 
 ## Distribution
 

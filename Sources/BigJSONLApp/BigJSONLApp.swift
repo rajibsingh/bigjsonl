@@ -20,6 +20,7 @@ struct BigJSONLApp: App {
                         onNew: newTab
                     )
                     searchToolbar
+                    reloadButton
                 }
 
                 if let tab = selectedTab {
@@ -64,6 +65,13 @@ struct BigJSONLApp: App {
                     openFileInSelectedTab()
                 }
                 .keyboardShortcut("o", modifiers: .command)
+            }
+            CommandGroup(after: .newItem) {
+                Button("Reload File") {
+                    reloadSelectedTab()
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(selectedTab?.url == nil)
             }
         }
     }
@@ -168,6 +176,31 @@ struct BigJSONLApp: App {
     private func clearSearch() {
         searchQuery = ""
         selectedTab?.viewModel?.clearSearch()
+    }
+
+    // MARK: - Reload
+
+    private var reloadButton: some View {
+        Button {
+            reloadSelectedTab()
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 12))
+                .foregroundStyle(selectedTab?.url != nil ? .secondary : .tertiary)
+        }
+        .buttonStyle(.plain)
+        .disabled(selectedTab?.url == nil)
+        .help("Reload file (⌘R)")
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func reloadSelectedTab() {
+        guard let tab = selectedTab, tab.url != nil else { return }
+        clearSearch()
+        tab.reload()
     }
 
     // MARK: - Welcome screen

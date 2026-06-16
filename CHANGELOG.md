@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Manual reload (⌘R / toolbar button) — re-opens the current file from scratch, picking up any new content written since the file was opened. Search is cleared on reload. The button is disabled when no file is open.
 - Tabbed interface — multiple JSONL files can be open simultaneously in a single window. Each tab is fully independent (its own viewport, index, search state, and inspector). A + button opens a new empty tab showing the welcome screen; ⌘T is the keyboard shortcut. Closing the last tab resets it to empty rather than quitting.
 - `TabItem` — model owning a tab's URL, `BigJSONLDocument`, `DocumentViewModel`, and display title.
 - `TabBarView` — horizontal tab strip with per-tab close buttons, scrollable when many tabs are open, and a + button at the right end.

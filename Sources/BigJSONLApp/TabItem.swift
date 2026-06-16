@@ -34,4 +34,12 @@ final class TabItem: Identifiable {
         self.document = doc
         self.viewModel = DocumentViewModel(document: doc)
     }
+
+    /// Re-opens the current file from scratch, picking up any new content written since open.
+    func reload() {
+        guard let url else { return }
+        let doc = BigJSONLDocument(url: url)
+        self.document = doc
+        self.viewModel = DocumentViewModel(document: doc)
+    }
 }

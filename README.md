@@ -41,11 +41,12 @@ bigjsonl path/to/file.jsonl --no-color
 ## Features
 
 - Opens multi-GB JSONL files instantly — no upfront file load
-- Multiple files open simultaneously in tabs (⌘T for new tab, ⌘O to open one or more files)
+- Multiple files open simultaneously in tabs (⌘T for new tab, ⌘O to open one or more files, ⌘R to reload)
 - Scrollable line list with one document per line; inspector auto-opens on the first line
 - `\n` escape sequences in JSON strings displayed as visible markers with real line breaks for readability
 - Search via grep/ripgrep — results appear in a persistent left-pane list; click any result to jump to that line; query persists across tab switches
 - Line inspector sidebar showing byte offset, length, JSON validity, and pretty-printed syntax-highlighted content
+- Safe to open files being actively written — read-only `O_RDONLY` + `MAP_PRIVATE` mmap holds no write lock; ⌘R reloads to pick up new content
 - Graceful handling of malformed lines (shown as raw text with a visual indicator)
 - Available as both a CLI tool and a native macOS SwiftUI app
 
