@@ -21,6 +21,8 @@ final class DocumentViewModel {
     var isLoading: Bool = false
     var errorMessage: String?
     var requestedScrollLine: UInt64?
+    @ObservationIgnored private var viewportTask: Task<Void, Never>?
+    @ObservationIgnored private var viewportGeneration = 0
 
     // MARK: - Search state
     var searchResults: [SearchResult] = []
@@ -34,6 +36,7 @@ final class DocumentViewModel {
     var inspectorLineNumber: UInt64?
     var isPreparingInspector = false
     @ObservationIgnored private var inspectorTask: Task<Void, Never>?
+    @ObservationIgnored private var inspectorFormattingTask: Task<JSONDisplayContent, Error>?
     @ObservationIgnored private var inspectorCache: [UInt64: JSONDisplayContent] = [:]
     @ObservationIgnored private var inspectorCacheOrder: [UInt64] = []
 
@@ -53,6 +56,8 @@ final class DocumentViewModel {
 
     /// Open the file and load the initial viewport.
     func openFile() {
+        guard mappedFile == nil else { return }
+        cancelViewportLoad()
         isLoading = true
         errorMessage = nil
 
@@ -62,12 +67,11 @@ final class DocumentViewModel {
             self.index = document.index
 
             // Load the initial window
-            try loadWindow(startingAt: 1)
+            scheduleViewportLoad(startingAt: 1)
         } catch {
             errorMessage = "Failed to open file: \(error.localizedDescription)"
+            isLoading = false
         }
-
-        isLoading = false
     }
 
     // MARK: - Viewport management
@@ -75,16 +79,10 @@ final class DocumentViewModel {
     /// Load a window of lines around the given line number.
     func scrollTo(line: UInt64) {
         guard mappedFile != nil else { return }
-        isLoading = true
-
-        do {
-            try loadWindow(around: line)
-            requestedScrollLine = line
-        } catch {
-            errorMessage = "Error reading file: \(error.localizedDescription)"
-        }
-
-        isLoading = false
+        scheduleViewportLoad(
+            startingAt: startLine(around: line),
+            requestedScrollLine: line
+        )
     }
 
     /// Resize the bounded line window so the loaded rows fill the visible pane.
@@ -101,52 +99,13 @@ final class DocumentViewModel {
         viewportLineCount = desiredCount
 
         guard mappedFile != nil, !visibleLines.isEmpty else { return }
-        replaceWindow(startingAt: firstVisibleLine)
+        scheduleViewportLoad(startingAt: firstVisibleLine)
     }
 
-    /// Load the viewport buffer around a center line.
-    private func loadWindow(around centerLine: UInt64) throws {
+    private func startLine(around centerLine: UInt64) -> UInt64 {
         let safeCenter = max(centerLine, 1)
         let halfWindow = viewportLineCount / 2
-        let startLine = safeCenter > halfWindow ? safeCenter - halfWindow : 1
-        try loadWindow(startingAt: startLine)
-    }
-
-    /// Load a bounded viewport window starting at the requested line.
-    private func loadWindow(startingAt requestedStartLine: UInt64) throws {
-        guard let file = mappedFile else { return }
-
-        let requestedStartLine = max(requestedStartLine, 1)
-        let requestedEndLine = requestedStartLine > UInt64.max - (viewportLineCount - 1)
-            ? UInt64.max
-            : requestedStartLine + viewportLineCount - 1
-
-        // Index one line beyond the window so every displayed byte range has
-        // either a known next-line boundary or a confirmed EOF.
-        let lookaheadLine = requestedEndLine == UInt64.max ? requestedEndLine : requestedEndLine + 1
-        index.ensureLineIndexed(lookaheadLine, mappedFile: file)
-        self.totalLines = index.lineCount
-
-        guard totalLines > 0 else {
-            visibleLines = []
-            firstVisibleLine = 1
-            return
-        }
-
-        let startLine = min(requestedStartLine, totalLines)
-        let endLine = startLine > UInt64.max - (viewportLineCount - 1)
-            ? UInt64.max
-            : startLine + viewportLineCount - 1
-
-        // Read and tokenize each line in the window
-        var lines: [LineInfo] = []
-        for lineNum in startLine...min(endLine, totalLines) {
-            guard let lineInfo = try readLine(lineNum, file: file) else { continue }
-            lines.append(lineInfo)
-        }
-
-        self.visibleLines = lines
-        self.firstVisibleLine = startLine
+        return safeCenter > halfWindow ? safeCenter - halfWindow : 1
     }
 
     var canLoadPreviousWindow: Bool {
@@ -164,7 +123,7 @@ final class DocumentViewModel {
         let startLine = lastVisible > viewportOverlap
             ? lastVisible - viewportOverlap + 1
             : 1
-        replaceWindow(startingAt: startLine)
+        scheduleViewportLoad(startingAt: startLine)
     }
 
     /// Moves the bounded viewport backward while retaining an overlap for scroll anchoring.
@@ -176,57 +135,65 @@ final class DocumentViewModel {
         let startLine = firstVisibleLine > step
             ? firstVisibleLine - step
             : 1
-        replaceWindow(startingAt: startLine)
+        scheduleViewportLoad(startingAt: startLine)
     }
 
-    private func replaceWindow(around line: UInt64) {
+    private func scheduleViewportLoad(
+        startingAt line: UInt64,
+        requestedScrollLine: UInt64? = nil
+    ) {
+        guard let file = mappedFile else { return }
+        viewportTask?.cancel()
+        viewportGeneration += 1
+        let generation = viewportGeneration
+        let indexSnapshot = index
+        let count = viewportLineCount
         isLoading = true
-        do {
-            try loadWindow(around: line)
-        } catch {
-            errorMessage = "Error reading file: \(error.localizedDescription)"
+
+        viewportTask = Task {
+            do {
+                let viewport = try await Task.detached(priority: .userInitiated) {
+                    try ViewportLoader.load(
+                        startingAt: line,
+                        count: count,
+                        mappedFile: file,
+                        index: indexSnapshot
+                    )
+                }.value
+
+                guard generation == viewportGeneration else { return }
+                index = viewport.index
+                totalLines = viewport.totalLines
+                visibleLines = viewport.lines
+                firstVisibleLine = viewport.firstVisibleLine
+                if let requestedScrollLine {
+                    self.requestedScrollLine = requestedScrollLine
+                }
+                isLoading = false
+            } catch is CancellationError {
+                if generation == viewportGeneration {
+                    isLoading = false
+                }
+            } catch {
+                if generation == viewportGeneration {
+                    errorMessage = "Error reading file: \(error.localizedDescription)"
+                    isLoading = false
+                }
+            }
         }
-        isLoading = false
     }
 
-    private func replaceWindow(startingAt line: UInt64) {
-        isLoading = true
-        do {
-            try loadWindow(startingAt: line)
-        } catch {
-            errorMessage = "Error reading file: \(error.localizedDescription)"
-        }
+    private func cancelViewportLoad() {
+        viewportGeneration += 1
+        viewportTask?.cancel()
+        viewportTask = nil
         isLoading = false
-    }
-
-    /// Read and tokenize a single line.
-    private func readLine(_ lineNum: UInt64, file: MappedFile) throws -> LineInfo? {
-        guard let offset = index.offsetForLine(lineNum) else { return nil }
-        guard let range = index.byteRangeForLine(lineNum, fileSize: file.size) else { return nil }
-
-        let length = range.upperBound - range.lowerBound
-        let data = file.read(offset: offset, length: length)
-        let rawData = Data(data)
-
-        guard let text = String(data: rawData, encoding: .utf8) else { return nil }
-        let displayText = text.trimmingCharacters(in: ["\n", "\r"])
-
-        let isValid = JSONTokenizer.isValid(displayText)
-
-        return LineInfo(
-            lineNumber: lineNum,
-            byteOffset: offset,
-            byteLength: length,
-            isValidJSON: isValid,
-            text: displayText,
-            tokens: []
-        )
     }
 
     // MARK: - Inspector
 
     func prepareInspector(for lineInfo: LineInfo) {
-        inspectorTask?.cancel()
+        cancelInspectorPreparation()
         inspectorLineNumber = lineInfo.lineNumber
 
         if let cached = inspectorCache[lineInfo.lineNumber] {
@@ -241,16 +208,30 @@ final class DocumentViewModel {
         let lineNumber = lineInfo.lineNumber
         let text = lineInfo.text
         let isValid = lineInfo.isValidJSON
+        let formattingTask = Task.detached(priority: .userInitiated) {
+            try JSONFormatter.displayContentCancellable(text, isValid: isValid)
+        }
+        inspectorFormattingTask = formattingTask
 
         inspectorTask = Task {
-            let content = await Task.detached(priority: .userInitiated) {
-                JSONFormatter.displayContent(text, isValid: isValid)
-            }.value
+            do {
+                let content = try await formattingTask.value
 
-            guard !Task.isCancelled, inspectorLineNumber == lineNumber else { return }
-            cacheInspectorContent(content, for: lineNumber)
-            inspectorContent = content
-            isPreparingInspector = false
+                guard !Task.isCancelled, inspectorLineNumber == lineNumber else { return }
+                cacheInspectorContent(content, for: lineNumber)
+                inspectorContent = content
+                isPreparingInspector = false
+                inspectorFormattingTask = nil
+            } catch is CancellationError {
+                if inspectorLineNumber == lineNumber {
+                    isPreparingInspector = false
+                }
+            } catch {
+                if inspectorLineNumber == lineNumber {
+                    inspectorContent = JSONFormatter.displayContent(text, isValid: false)
+                    isPreparingInspector = false
+                }
+            }
         }
     }
 
@@ -325,7 +306,104 @@ final class DocumentViewModel {
 
     func cancelInspectorPreparation() {
         inspectorTask?.cancel()
+        inspectorFormattingTask?.cancel()
         inspectorTask = nil
+        inspectorFormattingTask = nil
         isPreparingInspector = false
+    }
+
+    func dispose() {
+        cancelViewportLoad()
+        cancelSearch()
+        cancelInspectorPreparation()
+        mappedFile = nil
+        visibleLines = []
+        searchResults = []
+        inspectorContent = nil
+        inspectorCache.removeAll()
+        inspectorCacheOrder.removeAll()
+    }
+}
+
+private struct LoadedViewport: Sendable {
+    let index: LineOffsetIndex
+    let totalLines: UInt64
+    let firstVisibleLine: UInt64
+    let lines: [LineInfo]
+}
+
+private enum ViewportLoader {
+    static func load(
+        startingAt requestedStartLine: UInt64,
+        count: UInt64,
+        mappedFile: MappedFile,
+        index: LineOffsetIndex
+    ) throws -> LoadedViewport {
+        var index = index
+        let requestedStartLine = max(requestedStartLine, 1)
+        let requestedEndLine = requestedStartLine > UInt64.max - (count - 1)
+            ? UInt64.max
+            : requestedStartLine + count - 1
+
+        let lookaheadLine = requestedEndLine == UInt64.max
+            ? requestedEndLine
+            : requestedEndLine + 1
+        index.ensureLineIndexed(lookaheadLine, mappedFile: mappedFile)
+        try Task.checkCancellation()
+
+        let totalLines = index.lineCount
+        guard totalLines > 0 else {
+            return LoadedViewport(
+                index: index,
+                totalLines: 0,
+                firstVisibleLine: 1,
+                lines: []
+            )
+        }
+
+        let startLine = min(requestedStartLine, totalLines)
+        let endLine = startLine > UInt64.max - (count - 1)
+            ? UInt64.max
+            : startLine + count - 1
+
+        var lines: [LineInfo] = []
+        lines.reserveCapacity(Int(min(count, 512)))
+        for lineNum in startLine...min(endLine, totalLines) {
+            try Task.checkCancellation()
+            guard let lineInfo = readLine(lineNum, file: mappedFile, index: index) else { continue }
+            lines.append(lineInfo)
+        }
+
+        return LoadedViewport(
+            index: index,
+            totalLines: totalLines,
+            firstVisibleLine: startLine,
+            lines: lines
+        )
+    }
+
+    private static func readLine(
+        _ lineNum: UInt64,
+        file: MappedFile,
+        index: LineOffsetIndex
+    ) -> LineInfo? {
+        guard let offset = index.offsetForLine(lineNum) else { return nil }
+        guard let range = index.byteRangeForLine(lineNum, fileSize: file.size) else { return nil }
+
+        let length = range.upperBound - range.lowerBound
+        let data = file.read(offset: offset, length: length)
+        let rawData = Data(data)
+
+        guard let text = String(data: rawData, encoding: .utf8) else { return nil }
+        let displayText = text.trimmingCharacters(in: ["\n", "\r"])
+
+        return LineInfo(
+            lineNumber: lineNum,
+            byteOffset: offset,
+            byteLength: length,
+            isValidJSON: JSONTokenizer.isValid(displayText),
+            text: displayText,
+            tokens: []
+        )
     }
 }

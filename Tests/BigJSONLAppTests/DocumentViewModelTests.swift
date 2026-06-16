@@ -4,38 +4,43 @@ import Testing
 
 @MainActor
 @Test("Viewport advances and retreats with bounded overlapping windows")
-func viewportNavigation() throws {
+func viewportNavigation() async throws {
     let fixture = try AppTestJSONLFile(lineCount: 100)
     let viewModel = DocumentViewModel(
         document: BigJSONLDocument(url: fixture.url)
     )
 
     viewModel.openFile()
+    try await waitForLoading(viewModel)
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
     #expect(viewModel.visibleLines.last?.lineNumber == 41)
     #expect(viewModel.visibleLines.allSatisfy { $0.tokens.isEmpty })
     #expect(viewModel.canLoadNextWindow)
 
     viewModel.loadNextWindow()
+    try await waitForLoading(viewModel)
     #expect(viewModel.visibleLines.first?.lineNumber == 41)
     #expect(viewModel.visibleLines.last?.lineNumber == 81)
     #expect(viewModel.visibleLines.last?.text == "{\"line\":81,\"value\":\"match\"}")
 
     viewModel.loadPreviousWindow()
+    try await waitForLoading(viewModel)
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
     #expect(viewModel.visibleLines.last?.lineNumber == 41)
 }
 
 @MainActor
 @Test("Viewport grows to fill a taller line pane")
-func viewportGrowsToFillTallerPane() throws {
+func viewportGrowsToFillTallerPane() async throws {
     let fixture = try AppTestJSONLFile(lineCount: 200)
     let viewModel = DocumentViewModel(
         document: BigJSONLDocument(url: fixture.url)
     )
 
     viewModel.openFile()
+    try await waitForLoading(viewModel)
     viewModel.updateViewportHeight(1_000)
+    try await waitForLoading(viewModel)
 
     #expect(viewModel.visibleLines.first?.lineNumber == 1)
     #expect((viewModel.visibleLines.last?.lineNumber ?? 0) > 70)
@@ -50,6 +55,7 @@ func inspectorPreparationIsCached() async throws {
         document: BigJSONLDocument(url: fixture.url)
     )
     viewModel.openFile()
+    try await waitForLoading(viewModel)
     let line = try #require(viewModel.visibleLines.first)
 
     viewModel.prepareInspector(for: line)
@@ -76,6 +82,7 @@ func asynchronousSearchIsBounded() async throws {
         document: BigJSONLDocument(url: fixture.url)
     )
     viewModel.openFile()
+    try await waitForLoading(viewModel)
     viewModel.performSearch(query: "match")
     #expect(viewModel.isSearching)
 
@@ -86,6 +93,35 @@ func asynchronousSearchIsBounded() async throws {
     #expect(!viewModel.isSearching)
     #expect(viewModel.searchError == nil)
     #expect(viewModel.searchResults.count == 500)
+}
+
+@MainActor
+@Test("Disposing the view model cancels work and clears retained content")
+func disposingViewModelClearsState() async throws {
+    let fixture = try AppTestJSONLFile(lineCount: 1_000)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+    viewModel.openFile()
+    try await waitForLoading(viewModel)
+
+    viewModel.performSearch(query: "match")
+    viewModel.dispose()
+
+    #expect(!viewModel.isSearching)
+    #expect(viewModel.visibleLines.isEmpty)
+    #expect(viewModel.searchResults.isEmpty)
+    #expect(viewModel.inspectorContent == nil)
+}
+
+@MainActor
+private func waitForLoading(
+    _ viewModel: DocumentViewModel
+) async throws {
+    for _ in 0..<200 where viewModel.isLoading {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!viewModel.isLoading)
 }
 
 private final class AppTestJSONLFile {

@@ -13,6 +13,9 @@
 - Inspector auto-selects line 1 on file open so the content pane is never empty.
 - `\n` escape sequences inside JSON string values are expanded into a visible `\n` marker followed by a real line break in both the line list and the inspector content pane, improving readability of content-heavy records.
 
+### Changed
+- Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.
+
 ### Fixed
 - Grow the loaded line viewport from the left-pane height so resizing tall windows fills the pane instead of showing a misleading blank area.
 - Clarify active tab styling in dark mode with stronger fill, border, and accent underline.

@@ -76,6 +76,27 @@ public final class MappedFile: @unchecked Sendable {
         })
     }
 
+    /// Provides direct read-only access to a byte range in the memory mapping.
+    ///
+    /// The buffer is valid only for the duration of `body`; callers must not
+    /// escape the pointer or store references into it.
+    public func withUnsafeBytes<T>(
+        offset: UInt64,
+        length: UInt64,
+        _ body: (UnsafeRawBufferPointer) throws -> T
+    ) rethrows -> T? {
+        guard let base = baseAddress,
+              offset <= size,
+              length <= size - offset,
+              length > 0 else {
+            return nil
+        }
+
+        let ptr = base.advanced(by: Int(offset))
+        let buffer = UnsafeRawBufferPointer(start: ptr, count: Int(length))
+        return try body(buffer)
+    }
+
     /// Reads a single byte at the given offset.
     public func readByte(at offset: UInt64) -> UInt8? {
         guard let base = baseAddress, offset < size else { return nil }

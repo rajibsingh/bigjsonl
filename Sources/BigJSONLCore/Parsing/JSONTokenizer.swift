@@ -40,6 +40,15 @@ public enum JSONTokenizer {
     }
 
     static func tokenizeValidJSON(_ line: String) -> [Token] {
+        // This non-throwing path is used by synchronous callers that already
+        // validated the JSON and do not need cooperative cancellation.
+        (try? tokenizeValidJSON(line, checkingCancellation: false)) ?? []
+    }
+
+    static func tokenizeValidJSON(
+        _ line: String,
+        checkingCancellation: Bool
+    ) throws -> [Token] {
         // Phase 2: Byte-level tokenization
         let bytes = Array(line.utf8)
         var tokens: [Token] = []
@@ -47,6 +56,10 @@ public enum JSONTokenizer {
 
         var pos = 0
         while pos < bytes.count {
+            if checkingCancellation, pos.isMultiple(of: 4096) {
+                try Task.checkCancellation()
+            }
+
             let start = UInt64(pos)
             let byte = bytes[pos]
 

@@ -94,14 +94,13 @@ struct BigJSONLApp: App {
         guard tabs.count > 1 else {
             // Only one tab left — reset it to empty rather than closing
             if let only = tabs.first {
-                only.url?.stopAccessingSecurityScopedResource()
-                only.url = nil
-                only.document = nil
+                only.close()
             }
             return
         }
 
         if let idx = tabs.firstIndex(where: { $0.id == id }) {
+            tabs[idx].close()
             tabs.remove(at: idx)
             let newIdx = max(0, idx - 1)
             selectedTabID = tabs[newIdx].id

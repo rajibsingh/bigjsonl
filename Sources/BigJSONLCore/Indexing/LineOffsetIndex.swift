@@ -84,20 +84,22 @@ public struct LineOffsetIndex: Sendable {
 
         while entries.last!.0 < line && scanOffset < fileSize {
             let chunkSize: UInt64 = min(256 * 1024, fileSize - scanOffset) // 256KB chunks
-            let chunk = mappedFile.read(offset: scanOffset, length: chunkSize)
-
-            // Scan the chunk for newlines using byte array access
-            let bytes = [UInt8](Data(chunk))
-
-            for byte in bytes {
-                scanOffset += 1
-                if byte == UInt8(ascii: "\n"), scanOffset < fileSize {
-                    let nextLine = entries.last!.0 + 1
-                    entries.append((nextLine, scanOffset))
-                    if nextLine == line {
-                        return
+            let foundTarget = mappedFile.withUnsafeBytes(offset: scanOffset, length: chunkSize) { bytes in
+                for byte in bytes {
+                    scanOffset += 1
+                    if byte == UInt8(ascii: "\n"), scanOffset < fileSize {
+                        let nextLine = entries.last!.0 + 1
+                        entries.append((nextLine, scanOffset))
+                        if nextLine == line {
+                            return true
+                        }
                     }
                 }
+                return false
+            } ?? false
+
+            if foundTarget {
+                return
             }
         }
 

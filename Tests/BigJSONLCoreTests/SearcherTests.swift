@@ -34,6 +34,25 @@ func searchLimitAndOptionPattern() throws {
     #expect(results.allSatisfy { $0.lineText.contains("-needle") })
 }
 
+@Test("Search results retain bounded snippets instead of full lines")
+func searchResultsAreSnippetBounded() throws {
+    let longValue = String(repeating: "x", count: 20_000)
+    let fixture = try TemporaryJSONLFile(contents: """
+        {"prefix":"\(longValue)","value":"needle","suffix":"\(longValue)"}
+        """)
+
+    let results = try Searcher.search(
+        pattern: "needle",
+        in: fixture.url,
+        tool: .grep,
+        limit: 1
+    )
+
+    let result = try #require(results.first)
+    #expect(result.lineText.contains("needle"))
+    #expect(result.lineText.count < 500)
+}
+
 @Test("Async search responds to task cancellation")
 func searchCancellation() async throws {
     let contents = String(repeating: "{\"value\":\"haystack\"}\n", count: 100_000)

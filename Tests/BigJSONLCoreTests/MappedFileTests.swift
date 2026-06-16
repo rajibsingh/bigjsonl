@@ -22,6 +22,11 @@ func mappedFileReadsBytes() throws {
     // Read a range and verify
     let data = file.read(offset: 0, length: 10)
     #expect(data.count == 10)
+
+    let firstTen = file.withUnsafeBytes(offset: 0, length: 10) { bytes in
+        String(decoding: bytes, as: UTF8.self)
+    }
+    #expect(firstTen?.first == "{")
 }
 
 @Test("Mapped data retains its mapping owner")

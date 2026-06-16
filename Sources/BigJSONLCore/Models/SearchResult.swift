@@ -4,7 +4,7 @@ public struct SearchResult: Equatable, Sendable {
     public let lineNumber: UInt64
     /// Byte offset of the matching line within the file.
     public let byteOffset: UInt64
-    /// The full text of the matching line.
+    /// A bounded snippet of the matching line.
     public let lineText: String
 
     public init(lineNumber: UInt64, byteOffset: UInt64, lineText: String) {

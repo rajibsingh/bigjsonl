@@ -19,6 +19,34 @@ public enum JSONFormatter {
         )
     }
 
+    /// Prepares text and syntax tokens, checking cancellation during large records.
+    public static func displayContentCancellable(
+        _ json: String,
+        isValid: Bool
+    ) throws -> JSONDisplayContent {
+        try Task.checkCancellation()
+        guard isValid else {
+            return JSONDisplayContent(
+                text: json,
+                tokens: [Token(range: 0..<UInt64(json.utf8.count), type: .invalid)]
+            )
+        }
+
+        let text = try prettyPrinted(
+            json,
+            indentation: 2,
+            validate: false,
+            checkingCancellation: true
+        )
+        return JSONDisplayContent(
+            text: text,
+            tokens: try JSONTokenizer.tokenizeValidJSON(
+                text,
+                checkingCancellation: true
+            )
+        )
+    }
+
     /// Pretty-prints valid JSON using the requested indentation width.
     ///
     /// Strings and number literals are preserved exactly. Invalid JSON is returned
@@ -32,6 +60,20 @@ public enum JSONFormatter {
         indentation: Int,
         validate: Bool
     ) -> String {
+        (try? prettyPrinted(
+            json,
+            indentation: indentation,
+            validate: validate,
+            checkingCancellation: false
+        )) ?? json
+    }
+
+    private static func prettyPrinted(
+        _ json: String,
+        indentation: Int,
+        validate: Bool,
+        checkingCancellation: Bool
+    ) throws -> String {
         guard indentation >= 0,
               !validate || JSONTokenizer.isValid(json) else {
             return json
@@ -47,6 +89,10 @@ public enum JSONFormatter {
         var isEscaped = false
 
         while index < bytes.count {
+            if checkingCancellation, index.isMultiple(of: 4096) {
+                try Task.checkCancellation()
+            }
+
             let byte = bytes[index]
 
             if isInString {

@@ -88,7 +88,7 @@ public enum Searcher {
         let toolPath = try resolveToolPath(tool)
         let args = buildArgs(for: tool, pattern: pattern, fileURL: fileURL, limit: limit)
         let output = try runSubprocess(tool: toolPath, args: args, controller: controller)
-        return try parseResults(output: output, tool: tool)
+        return try parseResults(output: output, pattern: pattern)
     }
 
     // MARK: - Private
@@ -127,7 +127,7 @@ public enum Searcher {
     /// Parse grep/rg output lines into `SearchResult` values.
     ///
     /// Format (both): `lineNumber:byteOffset:lineText`
-    private static func parseResults(output: String, tool: Tool) throws -> [SearchResult] {
+    private static func parseResults(output: String, pattern: String) throws -> [SearchResult] {
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
         var results: [SearchResult] = []
         results.reserveCapacity(lines.count)
@@ -143,7 +143,10 @@ public enum Searcher {
             guard let byteOffset = UInt64(byteOffsetStr) else { continue }
 
             let afterSecond = line.index(after: secondColon)
-            let lineText = String(line[afterSecond...])
+            let lineText = snippet(
+                from: line[afterSecond...],
+                around: pattern
+            )
 
             results.append(SearchResult(
                 lineNumber: lineNumber,
@@ -153,6 +156,36 @@ public enum Searcher {
         }
 
         return results
+    }
+
+    private static func snippet(
+        from text: Substring,
+        around pattern: String,
+        context: Int = 160
+    ) -> String {
+        guard text.count > context * 2 else {
+            return String(text)
+        }
+
+        let matchRange = pattern.isEmpty
+            ? nil
+            : text.range(of: pattern, options: [.caseInsensitive])
+
+        guard let matchRange else {
+            let end = text.index(text.startIndex, offsetBy: context * 2)
+            return String(text[..<end]) + "..."
+        }
+
+        let beforeDistance = text.distance(from: text.startIndex, to: matchRange.lowerBound)
+        let afterDistance = text.distance(from: matchRange.upperBound, to: text.endIndex)
+        let startOffset = max(0, beforeDistance - context)
+        let endOffset = min(text.count, beforeDistance + text.distance(from: matchRange.lowerBound, to: matchRange.upperBound) + context)
+
+        let start = text.index(text.startIndex, offsetBy: startOffset)
+        let end = text.index(text.startIndex, offsetBy: endOffset)
+        let prefix = startOffset > 0 ? "..." : ""
+        let suffix = afterDistance > context ? "..." : ""
+        return prefix + String(text[start..<end]) + suffix
     }
 
     /// Run a subprocess, read stdout, return it as a string.

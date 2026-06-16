@@ -43,14 +43,14 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.openFile()
-            if let first = viewModel.visibleLines.first {
-                selectedLine = first.lineNumber
-                viewModel.prepareInspector(for: first)
-            }
+            prepareSelectionIfPossible(viewModel.visibleLines)
         }
         .onDisappear {
             viewModel.cancelSearch()
             viewModel.cancelInspectorPreparation()
+        }
+        .onChange(of: viewModel.visibleLines.map(\.lineNumber)) { _, _ in
+            prepareSelectionIfPossible(viewModel.visibleLines)
         }
         .onChange(of: viewModel.requestedScrollLine) { _, line in
             if let line {
@@ -58,6 +58,20 @@ struct ContentView: View {
                 viewModel.requestedScrollLine = nil
             }
         }
+    }
+
+    private func prepareSelectionIfPossible(_ lines: [LineInfo]) {
+        if selectedLine == nil {
+            selectedLine = lines.first?.lineNumber
+        }
+
+        guard let selectedLine,
+              let lineInfo = lines.first(where: { $0.lineNumber == selectedLine }),
+              viewModel.inspectorLineNumber != selectedLine else {
+            return
+        }
+
+        viewModel.prepareInspector(for: lineInfo)
     }
 
     /// Called by BigJSONLApp when the user submits a search query.

@@ -28,7 +28,7 @@ final class TabItem: Identifiable {
     }
 
     func open(url: URL) {
-        self.url?.stopAccessingSecurityScopedResource()
+        dispose(stopAccessingResource: true)
         self.url = url
         let doc = BigJSONLDocument(url: url)
         self.document = doc
@@ -38,8 +38,23 @@ final class TabItem: Identifiable {
     /// Re-opens the current file from scratch, picking up any new content written since open.
     func reload() {
         guard let url else { return }
+        viewModel?.dispose()
         let doc = BigJSONLDocument(url: url)
         self.document = doc
         self.viewModel = DocumentViewModel(document: doc)
+    }
+
+    func close() {
+        dispose(stopAccessingResource: true)
+    }
+
+    private func dispose(stopAccessingResource: Bool) {
+        viewModel?.dispose()
+        if stopAccessingResource {
+            url?.stopAccessingSecurityScopedResource()
+            url = nil
+        }
+        document = nil
+        viewModel = nil
     }
 }

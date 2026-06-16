@@ -152,6 +152,8 @@ struct FileRegion {
 #### Indexing — LineOffsetIndex
 
 - **Strategy: lazy incremental** — start empty, extend as the user navigates
+- Scans mapped bytes directly through `MappedFile.withUnsafeBytes` to avoid
+  copying each indexed chunk out of the mmap
 - Tracks whether EOF has been reached; a line range is available only when its
   next-line boundary or the physical EOF is known
 - Stores a sorted array of `(lineNumber: UInt64, byteOffset: UInt64)` pairs
@@ -261,6 +263,9 @@ class BigJSONLDocument: ReferenceFileDocument {
 - Uses `ScrollPosition` binding (macOS 15) for programmatic scrolling to search results
 - Renders only a bounded overlapping line window sized from the left pane height,
   so taller windows load enough rows to fill the visible area
+- Viewport preparation runs in a cancellable detached task; indexing, decoding,
+  and JSON validation happen off the main actor before the completed row window
+  is published back to SwiftUI
 - An end-of-user-scroll geometry check loads the previous or next window and
   preserves a shared line ID as the scroll anchor, allowing continuous navigation
   without mutating viewport state during initial layout
@@ -274,7 +279,9 @@ class BigJSONLDocument: ReferenceFileDocument {
 - Search toolbar lives in `BigJSONLApp` above the tab bar — outside the `ContentView` lifecycle — so the text field is never torn down on re-render or tab switch
 - `searchQuery: String` is `@State` on `BigJSONLApp`; each tab's `DocumentViewModel` owns its own `searchResults`
 - On submit, `BigJSONLApp` calls `selectedTab?.viewModel?.performSearch(query:)` directly; on tab switch, `onChange(of: selectedTabID)` re-runs the query against the new tab's view model
-- Results (capped at 500) replace the line list in the left pane — `SearchResultsView` shows line number gutter and a snippet with the matched term highlighted in orange
+- Results (capped at 500) replace the line list in the left pane — retained
+  result text is a bounded snippet, and `SearchResultsView` highlights the
+  matched term in orange
 - Clicking a result jumps the viewport to that line via `ScrollPosition`; results stay visible so the user can navigate freely between matches without re-running the search
 - A × button in the toolbar clears the query and results on all tabs, restoring the line list
 - Pane switching is driven off `searchResults.isEmpty` — no separate `searchActive` flag needed
@@ -283,6 +290,8 @@ class BigJSONLDocument: ReferenceFileDocument {
 
 - Metadata remains fixed above a full-height `Content` pane
 - Valid JSON is pretty-printed and tokenized in a detached task so selecting a large record does not block the main actor; stale results are discarded
+- The detached formatting task is cancelled directly, and formatter/tokenizer
+  loops cooperatively check cancellation while processing large records
 - Prepared content is retained in a three-entry cache for fast reselection
 - An AppKit `NSTextView` renders a single attributed string instead of creating one SwiftUI `Text` node per syntax token; ASCII records use token byte ranges directly as UTF-16 ranges
 - `\n` escape sequences inside JSON string values are expanded to `\n` + a real newline in the `NSAttributedString` after syntax highlighting, preserving token colours and JSON validity while improving readability of content-heavy records; the same substitution is applied in `LineView` for the line list
@@ -331,6 +340,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-16 | Search toolbar lifted to `BigJSONLApp`, `searchQuery` as top-level `@State` | Text field inside `ContentView` was destroyed mid-keystroke on re-render. Moving it outside the tab lifecycle gives a stable owner for the shared query string. |
 | 2026-06-16 | `\n` expansion applied post-tokenization in `NSAttributedString`, not in `prettyPrinted` | Inserting real newlines inside string values during formatting breaks JSON validity and confuses the tokenizer. Doing it as a find-replace on the finished attributed string preserves colours and correctness. |
 | 2026-06-16 | `O_RDONLY` + `MAP_PRIVATE` mmap — no write lock held | Files being actively written by another process can be safely viewed. New content appended after open is not visible until ⌘R reload, which replaces the mapping entirely. |
+| 2026-06-16 | Viewport preparation and inspector formatting are cancellable background work | Keeps scrolling, resizing, tab changes, and rapid line selection responsive for content-heavy records. |
 
 ## Distribution
 
