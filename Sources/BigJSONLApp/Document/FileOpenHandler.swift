@@ -10,24 +10,21 @@ enum FileOpenHandler {
     /// - Accepts any file type (validation happens after selection)
     /// - Remembers the last-opened directory
     @MainActor
-    static func openFile() -> URL? {
+    static func openFiles() -> [URL] {
         let panel = NSOpenPanel()
         panel.title = "Open JSONL File"
-        panel.message = "Select a JSONL or JSON file to view"
+        panel.message = "Select one or more JSONL or JSON files to view"
         panel.prompt = "Open"
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.showsHiddenFiles = true
         panel.treatsFilePackagesAsDirectories = false
 
-        // Don't filter by content type — accept any file.
-        // We validate the extension in openFile() instead.
         panel.allowedContentTypes = []
         panel.allowsOtherFileTypes = true
 
-        let response = panel.runModal()
-        return response == .OK ? panel.url : nil
+        return panel.runModal() == .OK ? panel.urls : []
     }
 
     /// Returns true if the file at the given URL is a supported type (.jsonl, .json).

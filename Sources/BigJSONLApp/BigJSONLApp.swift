@@ -101,22 +101,32 @@ struct BigJSONLApp: App {
     }
 
     private func openFileInSelectedTab() {
-        guard let url = FileOpenHandler.openFile() else { return }
+        let urls = FileOpenHandler.openFiles()
+        guard !urls.isEmpty else { return }
 
-        guard FileOpenHandler.isSupportedFile(url) else {
+        let unsupported = urls.filter { !FileOpenHandler.isSupportedFile($0) }
+        if !unsupported.isEmpty {
             let alert = NSAlert()
             alert.messageText = "Unsupported File Type"
-            alert.informativeText = "Please select a .jsonl or .json file."
+            alert.informativeText = "Please select only .jsonl or .json files."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
             return
         }
 
-        _ = url.startAccessingSecurityScopedResource()
-
-        if let tab = selectedTab {
-            tab.open(url: url)
+        for (index, url) in urls.enumerated() {
+            _ = url.startAccessingSecurityScopedResource()
+            if index == 0, let tab = selectedTab, tab.url == nil {
+                // Reuse the current tab if it's empty
+                tab.open(url: url)
+            } else {
+                let tab = TabItem(url: url)
+                tabs.append(tab)
+                if index == urls.count - 1 {
+                    selectedTabID = tab.id
+                }
+            }
         }
     }
 
