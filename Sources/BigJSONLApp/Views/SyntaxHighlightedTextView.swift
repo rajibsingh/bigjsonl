@@ -41,6 +41,7 @@ struct SyntaxHighlightedTextView: NSViewRepresentable {
         }
 
         textView.textStorage?.setAttributedString(makeAttributedString())
+        expandEscapedNewlines(in: textView)
         context.coordinator.renderedContentID = contentID
     }
 
@@ -112,6 +113,24 @@ struct SyntaxHighlightedTextView: NSViewRepresentable {
         case .number: .systemPurple
         case .bool, .null: .systemGreen
         case .invalid: .systemRed
+        }
+    }
+
+    // Replace \n escape sequences in string values with \n + real newline,
+    // preserving all existing syntax-highlight attributes.
+    private func expandEscapedNewlines(in textView: NSTextView) {
+        guard let storage = textView.textStorage else { return }
+        let target = "\\n"
+        let replacement = "\\n\n"
+        var searchRange = NSRange(location: 0, length: storage.length)
+        while searchRange.length > 0 {
+            let found = (storage.string as NSString).range(of: target, range: searchRange)
+            guard found.location != NSNotFound else { break }
+            // Carry forward the attributes from the first character of the match.
+            let attrs = storage.attributes(at: found.location, effectiveRange: nil)
+            storage.replaceCharacters(in: found, with: NSAttributedString(string: replacement, attributes: attrs))
+            let newEnd = found.location + replacement.count
+            searchRange = NSRange(location: newEnd, length: storage.length - newEnd)
         }
     }
 

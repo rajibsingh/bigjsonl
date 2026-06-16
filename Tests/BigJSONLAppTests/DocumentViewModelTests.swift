@@ -60,9 +60,7 @@ func asynchronousSearchIsBounded() async throws {
         document: BigJSONLDocument(url: fixture.url)
     )
     viewModel.openFile()
-    viewModel.searchQuery = "match"
-
-    viewModel.performSearch()
+    viewModel.performSearch(query: "match")
     #expect(viewModel.isSearching)
 
     for _ in 0..<200 where viewModel.isSearching {
