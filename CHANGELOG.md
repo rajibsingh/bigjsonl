@@ -17,6 +17,7 @@
 - Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.
 
 ### Fixed
+- Prevent extra scrolling at EOF from jumping the line list back toward the beginning of the file.
 - Grow the loaded line viewport from the left-pane height so resizing tall windows fills the pane instead of showing a misleading blank area.
 - Clarify active tab styling in dark mode with stronger fill, border, and accent underline.
 - Search query disappearing while typing and not persisting across tab switches — moved `searchQuery` state and the search toolbar out of `ContentView` into `BigJSONLApp` so the text field is never torn down on re-render or tab switch.

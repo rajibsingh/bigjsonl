@@ -119,7 +119,8 @@ final class DocumentViewModel {
 
     /// Advances the bounded viewport while retaining an overlap for scroll anchoring.
     func loadNextWindow() {
-        guard !isLoading, let lastVisible = visibleLines.last?.lineNumber else { return }
+        guard !isLoading, canLoadNextWindow,
+              let lastVisible = visibleLines.last?.lineNumber else { return }
         let startLine = lastVisible > viewportOverlap
             ? lastVisible - viewportOverlap + 1
             : 1
@@ -128,7 +129,7 @@ final class DocumentViewModel {
 
     /// Moves the bounded viewport backward while retaining an overlap for scroll anchoring.
     func loadPreviousWindow() {
-        guard !isLoading else { return }
+        guard !isLoading, canLoadPreviousWindow else { return }
         let step = viewportLineCount > viewportOverlap
             ? viewportLineCount - viewportOverlap
             : 1

@@ -30,6 +30,33 @@ func viewportNavigation() async throws {
 }
 
 @MainActor
+@Test("Extra bottom loads at EOF keep the final viewport stable")
+func repeatedBottomLoadAtEOFIsNoOp() async throws {
+    let fixture = try AppTestJSONLFile(lineCount: 100)
+    let viewModel = DocumentViewModel(
+        document: BigJSONLDocument(url: fixture.url)
+    )
+
+    viewModel.openFile()
+    try await waitForLoading(viewModel)
+
+    while viewModel.canLoadNextWindow {
+        viewModel.loadNextWindow()
+        try await waitForLoading(viewModel)
+    }
+
+    let firstAtEOF = viewModel.visibleLines.first?.lineNumber
+    let lastAtEOF = viewModel.visibleLines.last?.lineNumber
+    #expect(lastAtEOF == 100)
+
+    viewModel.loadNextWindow()
+    try await waitForLoading(viewModel)
+
+    #expect(viewModel.visibleLines.first?.lineNumber == firstAtEOF)
+    #expect(viewModel.visibleLines.last?.lineNumber == lastAtEOF)
+}
+
+@MainActor
 @Test("Viewport grows to fill a taller line pane")
 func viewportGrowsToFillTallerPane() async throws {
     let fixture = try AppTestJSONLFile(lineCount: 200)

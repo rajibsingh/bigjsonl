@@ -188,7 +188,9 @@ struct ContentView: View {
             if let anchor {
                 scrollPosition.scrollTo(id: anchor, anchor: .bottom)
             }
-        } else if geometry.visibleRect.minY <= threshold, viewModel.canLoadPreviousWindow {
+        } else if geometry.visibleRect.minY <= threshold,
+                  distanceFromBottom > threshold,
+                  viewModel.canLoadPreviousWindow {
             let anchor = viewModel.visibleLines.first?.lineNumber
             viewModel.loadPreviousWindow()
             if let anchor {
