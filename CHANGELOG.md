@@ -4,10 +4,17 @@
 
 ### Added
 - Tabbed interface — multiple JSONL files can be open simultaneously in a single window. Each tab is fully independent (its own viewport, index, search state, and inspector). A + button opens a new empty tab showing the welcome screen; ⌘T is the keyboard shortcut. Closing the last tab resets it to empty rather than quitting.
-- `TabItem` — model owning a tab's URL, `BigJSONLDocument`, and display title.
+- `TabItem` — model owning a tab's URL, `BigJSONLDocument`, `DocumentViewModel`, and display title.
 - `TabBarView` — horizontal tab strip with per-tab close buttons, scrollable when many tabs are open, and a + button at the right end.
+- Multi-file open — the file dialog now allows multiple selection; each chosen file opens in its own tab. The first file reuses the current tab if it is empty; subsequent files create new tabs. Focus lands on the last opened tab.
 - Search results pane in the left column — when a search returns matches, the line list is replaced by a scrollable list of results showing line number and snippet with the matched term highlighted in orange. Clicking any result jumps the viewport to that line without dismissing the results, so the user can navigate freely between matches. A × button in the toolbar clears the search and restores the line list.
 - `clearSearch()` on `DocumentViewModel` — resets query, results, and error state in one call.
+- Inspector auto-selects line 1 on file open so the content pane is never empty.
+- `\n` escape sequences inside JSON string values are expanded into a visible `\n` marker followed by a real line break in both the line list and the inspector content pane, improving readability of content-heavy records.
+
+### Fixed
+- Search query disappearing while typing and not persisting across tab switches — moved `searchQuery` state and the search toolbar out of `ContentView` into `BigJSONLApp` so the text field is never torn down on re-render or tab switch.
+- File open doing nothing — `selectedTabID` was initialised to a different `UUID` than `tabs[0].id`, so `selectedTab` was always `nil`; fixed by creating the first `TabItem` and capturing its `id` together in `.onAppear`. `TabItem` also marked `@Observable` so mutations to `url`/`document` trigger SwiftUI re-renders.
 
 ## [0.1.0] — 2026-06-15
 

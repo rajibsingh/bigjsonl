@@ -231,13 +231,14 @@ USAGE: bigjsonl <file> [--line <n>] [--search <pattern>] [--no-color]
 
 #### Tabbed interface
 
-- `TabItem` (`id: UUID`, `url: URL?`, `document: BigJSONLDocument?`) owns one tab's file state; a `nil` URL means an empty tab showing the welcome screen
-- `BigJSONLApp` holds `@State private var tabs: [TabItem]` and `selectedTabID: UUID`; `TabBarView` is rendered above the active tab's `ContentView`
+- `TabItem` (`id: UUID`, `url: URL?`, `document: BigJSONLDocument?`, `viewModel: DocumentViewModel?`) owns one tab's full state; a `nil` URL means an empty tab showing the welcome screen
+- `DocumentViewModel` is owned by `TabItem` (not `ContentView`) so it survives SwiftUI re-renders and tab switches
+- `BigJSONLApp` holds `@State private var tabs: [TabItem]`, `selectedTabID: UUID`, and `searchQuery: String`; `TabBarView` and the search toolbar are rendered above the active tab's `ContentView`
 - `TabBarView` — horizontal strip of tab chips (filename or "New Tab"), × close button per tab, + button at the right end; scrollable when many tabs are open
-- ⌘T opens a new empty tab; ⌘O opens a file in the currently selected tab
+- ⌘T opens a new empty tab; ⌘O opens a file picker with multiple selection — first file reuses the current tab if empty, each additional file gets its own new tab
+- Switching tabs re-runs the current search query against the new tab's view model automatically
 - Closing the last tab resets it to empty rather than quitting, matching macOS convention
 - Native `NSWindow.allowsAutomaticWindowTabbing` is left at its default; the custom tab bar makes system-level tab merging irrelevant
-- Each tab's `DocumentViewModel` is created inside `ContentView` as before — no changes to the core library
 
 #### DocumentGroup with lazy loading
 
@@ -267,23 +268,23 @@ class BigJSONLDocument: ReferenceFileDocument {
 
 #### Search
 
-- Text field in the toolbar; on submit shells out to grep/rg via the core library's search module
+- Search toolbar lives in `BigJSONLApp` above the tab bar — outside the `ContentView` lifecycle — so the text field is never torn down on re-render or tab switch
+- `searchQuery: String` is `@State` on `BigJSONLApp`; each tab's `DocumentViewModel` owns its own `searchResults`
+- On submit, `BigJSONLApp` calls `selectedTab?.viewModel?.performSearch(query:)` directly; on tab switch, `onChange(of: selectedTabID)` re-runs the query against the new tab's view model
 - Results (capped at 500) replace the line list in the left pane — `SearchResultsView` shows line number gutter and a snippet with the matched term highlighted in orange
 - Clicking a result jumps the viewport to that line via `ScrollPosition`; results stay visible so the user can navigate freely between matches without re-running the search
-- A × button in the toolbar clears the query and results, restoring the line list
+- A × button in the toolbar clears the query and results on all tabs, restoring the line list
 - Pane switching is driven off `searchResults.isEmpty` — no separate `searchActive` flag needed
-- `clearSearch()` on `DocumentViewModel` resets query, results, and error state in one call
 
 #### Line inspector
 
 - Metadata remains fixed above a full-height `Content` pane
-- Valid JSON is pretty-printed and tokenized in a detached task so selecting a
-  large record does not block the main actor; stale results are discarded
+- Valid JSON is pretty-printed and tokenized in a detached task so selecting a large record does not block the main actor; stale results are discarded
 - Prepared content is retained in a three-entry cache for fast reselection
-- An AppKit `NSTextView` renders a single attributed string instead of creating
-  one SwiftUI `Text` node per syntax token; ASCII records use token byte ranges
-  directly as UTF-16 ranges
+- An AppKit `NSTextView` renders a single attributed string instead of creating one SwiftUI `Text` node per syntax token; ASCII records use token byte ranges directly as UTF-16 ranges
+- `\n` escape sequences inside JSON string values are expanded to `\n` + a real newline in the `NSAttributedString` after syntax highlighting, preserving token colours and JSON validity while improving readability of content-heavy records; the same substitution is applied in `LineView` for the line list
 - Invalid JSON is shown unchanged and remains selectable
+- Line 1 is auto-selected when a file opens so the inspector content pane is never empty
 
 #### Malformed lines
 
@@ -323,6 +324,9 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-15 | Search results replace the line list in the left pane rather than a separate column | Avoids invasive `NavigationSplitView` restructuring; the existing two-column layout (line list + inspector) is preserved with a clean swap. |
 | 2026-06-15 | Custom SwiftUI tab bar rather than native `NSWindow` automatic tabbing | Native tabbing treats each tab as a separate `WindowGroup` window, making shared tab bar state and the "new tab → welcome screen" flow impractical. Custom tab bar keeps all state in one place. |
 | 2026-06-15 | CLI formula shipped to `Sepoy-Software/tap`; Cask deferred | CLI can build without code signing. GUI Cask requires Apple Developer ID cert, CI notarization, and a signed release archive. |
+| 2026-06-16 | `DocumentViewModel` owned by `TabItem`, not `ContentView` | `ContentView` carries `.id(tab.id)` and is torn down on tab switch; owning the view model in `TabItem` keeps search results, scroll state, and inspector cache alive across switches. |
+| 2026-06-16 | Search toolbar lifted to `BigJSONLApp`, `searchQuery` as top-level `@State` | Text field inside `ContentView` was destroyed mid-keystroke on re-render. Moving it outside the tab lifecycle gives a stable owner for the shared query string. |
+| 2026-06-16 | `\n` expansion applied post-tokenization in `NSAttributedString`, not in `prettyPrinted` | Inserting real newlines inside string values during formatting breaks JSON validity and confuses the tokenizer. Doing it as a find-replace on the finished attributed string preserves colours and correctness. |
 
 ## Distribution
 

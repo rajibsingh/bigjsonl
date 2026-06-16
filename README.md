@@ -6,7 +6,7 @@ Each line in a JSONL file is displayed as an independent syntax-highlighted docu
 
 ## Status
 
-v0.1.0 — CLI functional. SwiftUI app in active development with search results pane.
+v0.1.0 — CLI functional. SwiftUI app in active development.
 
 ## Installation
 
@@ -41,9 +41,11 @@ bigjsonl path/to/file.jsonl --no-color
 ## Features
 
 - Opens multi-GB JSONL files instantly — no upfront file load
-- Scrollable line list with syntax-highlighted JSON, one document per line
-- Search via grep/ripgrep — results appear in a persistent left-pane list; click any result to jump to that line
-- Line inspector sidebar showing byte offset, length, JSON validity, and pretty-printed content
+- Multiple files open simultaneously in tabs (⌘T for new tab, ⌘O to open one or more files)
+- Scrollable line list with one document per line; inspector auto-opens on the first line
+- `\n` escape sequences in JSON strings displayed as visible markers with real line breaks for readability
+- Search via grep/ripgrep — results appear in a persistent left-pane list; click any result to jump to that line; query persists across tab switches
+- Line inspector sidebar showing byte offset, length, JSON validity, and pretty-printed syntax-highlighted content
 - Graceful handling of malformed lines (shown as raw text with a visual indicator)
 - Available as both a CLI tool and a native macOS SwiftUI app
 
