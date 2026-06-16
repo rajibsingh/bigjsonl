@@ -267,6 +267,11 @@ class BigJSONLDocument: ReferenceFileDocument {
 - Viewport preparation runs in a cancellable detached task; indexing, decoding,
   and JSON validation happen off the main actor before the completed row window
   is published back to SwiftUI
+- Within that task, per-line work for the requested window is split into chunks
+  and read concurrently via a `TaskGroup` (one chunk per available core), since
+  each line's mmap read, UTF-8 decode, and JSON validity check are independent;
+  chunk results are reassembled in line-number order before the window is
+  returned
 - Continuous scroll geometry checks preload the previous or next window before
   the user reaches the loaded edge, preserving an estimated center line as the
   scroll anchor. Existing rows stay rendered while the next window is prepared,
@@ -351,6 +356,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-16 | `\n` expansion applied post-tokenization in `NSAttributedString`, not in `prettyPrinted` | Inserting real newlines inside string values during formatting breaks JSON validity and confuses the tokenizer. Doing it as a find-replace on the finished attributed string preserves colours and correctness. |
 | 2026-06-16 | `O_RDONLY` + `MAP_PRIVATE` mmap — no write lock held | Files being actively written by another process can be safely viewed. New content appended after open is not visible until ⌘R reload, which replaces the mapping entirely. |
 | 2026-06-16 | Viewport preparation and inspector formatting are cancellable background work | Keeps scrolling, resizing, tab changes, and rapid line selection responsive for content-heavy records. |
+| 2026-06-16 | Viewport line reads parallelized via `TaskGroup` within the detached preparation task | Each line's mmap read, decode, and JSON validity check is independent and CPU-bound; `MappedFile` (`@unchecked Sendable`, read-only mmap) and `LineOffsetIndex` (`Sendable` value type) are safe to read concurrently, so splitting the window across cores speeds up large windows without added data-race risk. |
 
 ## Distribution
 

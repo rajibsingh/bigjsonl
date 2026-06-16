@@ -167,7 +167,7 @@ final class DocumentViewModel {
         viewportTask = Task {
             do {
                 let viewport = try await Task.detached(priority: .userInitiated) {
-                    try ViewportLoader.load(
+                    try await ViewportLoader.load(
                         startingAt: line,
                         count: count,
                         mappedFile: file,
@@ -367,7 +367,7 @@ private enum ViewportLoader {
         count: UInt64,
         mappedFile: MappedFile,
         index: LineOffsetIndex
-    ) throws -> LoadedViewport {
+    ) async throws -> LoadedViewport {
         var index = index
         let requestedStartLine = max(requestedStartLine, 1)
         let requestedEndLine = requestedStartLine > UInt64.max - (count - 1)
@@ -391,17 +391,17 @@ private enum ViewportLoader {
         }
 
         let startLine = min(requestedStartLine, totalLines)
-        let endLine = startLine > UInt64.max - (count - 1)
-            ? UInt64.max
-            : startLine + count - 1
+        let endLine = min(
+            startLine > UInt64.max - (count - 1) ? UInt64.max : startLine + count - 1,
+            totalLines
+        )
 
-        var lines: [LineInfo] = []
-        lines.reserveCapacity(Int(min(count, 512)))
-        for lineNum in startLine...min(endLine, totalLines) {
-            try Task.checkCancellation()
-            guard let lineInfo = readLine(lineNum, file: mappedFile, index: index) else { continue }
-            lines.append(lineInfo)
-        }
+        let lines = try await readLines(
+            from: startLine,
+            through: endLine,
+            file: mappedFile,
+            index: index
+        )
 
         return LoadedViewport(
             index: index,
@@ -409,6 +409,55 @@ private enum ViewportLoader {
             firstVisibleLine: startLine,
             lines: lines
         )
+    }
+
+    /// Reads and validates a contiguous range of lines, fanning the per-line
+    /// work (mmap read, UTF-8 decode, JSON validity check) out across a
+    /// `TaskGroup` since each line is independent and CPU-bound. Results are
+    /// reassembled in line-number order before returning.
+    private static func readLines(
+        from startLine: UInt64,
+        through endLine: UInt64,
+        file: MappedFile,
+        index: LineOffsetIndex
+    ) async throws -> [LineInfo] {
+        guard endLine >= startLine else { return [] }
+        let totalCount = Int(endLine - startLine + 1)
+
+        let chunkCount = min(
+            max(ProcessInfo.processInfo.activeProcessorCount, 1),
+            totalCount
+        )
+        let chunkSize = UInt64((totalCount + chunkCount - 1) / chunkCount)
+
+        var chunks: [(start: UInt64, end: UInt64)] = []
+        var chunkStart = startLine
+        while chunkStart <= endLine {
+            let chunkEnd = min(chunkStart + chunkSize - 1, endLine)
+            chunks.append((chunkStart, chunkEnd))
+            chunkStart = chunkEnd + 1
+        }
+
+        var results = [(Int, [LineInfo])](repeating: (0, []), count: chunks.count)
+        try await withThrowingTaskGroup(of: (Int, [LineInfo]).self) { group in
+            for (chunkIndex, chunk) in chunks.enumerated() {
+                group.addTask {
+                    var chunkLines: [LineInfo] = []
+                    chunkLines.reserveCapacity(Int(chunk.end - chunk.start + 1))
+                    for lineNum in chunk.start...chunk.end {
+                        try Task.checkCancellation()
+                        guard let lineInfo = readLine(lineNum, file: file, index: index) else { continue }
+                        chunkLines.append(lineInfo)
+                    }
+                    return (chunkIndex, chunkLines)
+                }
+            }
+            for try await (chunkIndex, chunkLines) in group {
+                results[chunkIndex] = (chunkIndex, chunkLines)
+            }
+        }
+
+        return results.flatMap { $0.1 }
     }
 
     private static func readLine(

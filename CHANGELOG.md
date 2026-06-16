@@ -14,6 +14,7 @@
 - `\n` escape sequences inside JSON string values are expanded into a visible `\n` marker followed by a real line break in both the line list and the inspector content pane, improving readability of content-heavy records.
 
 ### Changed
+- Parallelize per-line viewport preparation (mmap read, UTF-8 decode, JSON validity check) across a `TaskGroup` instead of a single serial loop, speeding up window loads on multi-core Macs while preserving line order.
 - Smooth main-pane scrolling with an overscanned moving viewport that preloads buffered rows before and after the visible line list while keeping existing rows rendered during background loads.
 - Reduce retained memory for content-heavy files by storing bounded line-list previews and loading full selected-line text only for the inspector.
 - Improve responsiveness and memory efficiency by preparing viewports off the main actor, bounding retained search snippets, scanning mmap bytes directly, cancelling stale inspector work, and disposing tab resources on close/reload.
