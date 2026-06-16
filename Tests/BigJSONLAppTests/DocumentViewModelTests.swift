@@ -153,6 +153,39 @@ func inspectorPreparationIsCached() async throws {
     #expect(viewModel.inspectorContent == prepared)
 }
 
+@Test("Viewport load gate coalesces repeated edge triggers")
+func viewportLoadGateCoalescesRepeatedEdgeTriggers() {
+    var gate = ViewportLoadGate(cooldown: 1)
+    let now = Date(timeIntervalSinceReferenceDate: 0)
+    let bottomEdge = LineListScrollState(
+        visibleMinY: 300,
+        visibleMidY: 350,
+        visibleHeight: 100,
+        distanceFromBottom: 20,
+        contentHeight: 1_000
+    )
+    let awayFromBottom = LineListScrollState(
+        visibleMinY: 300,
+        visibleMidY: 350,
+        visibleHeight: 100,
+        distanceFromBottom: 200,
+        contentHeight: 1_000
+    )
+
+    gate.update(for: bottomEdge, preloadDistance: 80)
+    let firstLoad = gate.shouldStartLoad(direction: .next, now: now)
+    #expect(firstLoad)
+    gate.update(for: bottomEdge, preloadDistance: 80)
+    let repeatedLoad = gate.shouldStartLoad(direction: .next, now: now.addingTimeInterval(2))
+    #expect(!repeatedLoad)
+
+    gate.update(for: awayFromBottom, preloadDistance: 80)
+    let cooldownLoad = gate.shouldStartLoad(direction: .next, now: now.addingTimeInterval(0.5))
+    #expect(!cooldownLoad)
+    let secondLoad = gate.shouldStartLoad(direction: .next, now: now.addingTimeInterval(1.1))
+    #expect(secondLoad)
+}
+
 @MainActor
 @Test("Inspector content can be prepared again after tab state is released")
 func inspectorPreparationRecoversAfterRelease() async throws {

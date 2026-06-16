@@ -8,6 +8,7 @@ struct ContentView: View {
     let onClearSearch: () -> Void
     @State private var scrollPosition: ScrollPosition = .init()
     @State private var selectedLine: UInt64?
+    @State private var viewportLoadGate = ViewportLoadGate()
 
     init(document: BigJSONLDocument, viewModel: DocumentViewModel, searchQuery: String, onClearSearch: @escaping () -> Void) {
         self.document = document
@@ -190,12 +191,15 @@ struct ContentView: View {
         guard !viewModel.isLoading, !viewModel.visibleLines.isEmpty else { return }
         let preloadDistance = max(state.visibleHeight * 0.8, 48)
         let anchor = estimatedLine(at: state.visibleMidY, contentHeight: state.contentHeight)
+        viewportLoadGate.update(for: state, preloadDistance: preloadDistance)
 
         if state.distanceFromBottom <= preloadDistance, viewModel.canLoadNextWindow {
+            guard viewportLoadGate.shouldStartLoad(direction: .next, now: Date()) else { return }
             viewModel.loadNextWindow(preserving: anchor)
         } else if state.visibleMinY <= preloadDistance,
                   state.distanceFromBottom > preloadDistance,
                   viewModel.canLoadPreviousWindow {
+            guard viewportLoadGate.shouldStartLoad(direction: .previous, now: Date()) else { return }
             viewModel.loadPreviousWindow(preserving: anchor)
         }
     }
@@ -218,12 +222,26 @@ struct ContentView: View {
     }
 }
 
-private struct LineListScrollState: Equatable {
+struct LineListScrollState: Equatable {
     let visibleMinY: CGFloat
     let visibleMidY: CGFloat
     let visibleHeight: CGFloat
     let distanceFromBottom: CGFloat
     let contentHeight: CGFloat
+
+    init(
+        visibleMinY: CGFloat,
+        visibleMidY: CGFloat,
+        visibleHeight: CGFloat,
+        distanceFromBottom: CGFloat,
+        contentHeight: CGFloat
+    ) {
+        self.visibleMinY = visibleMinY
+        self.visibleMidY = visibleMidY
+        self.visibleHeight = visibleHeight
+        self.distanceFromBottom = distanceFromBottom
+        self.contentHeight = contentHeight
+    }
 
     init(geometry: ScrollGeometry) {
         visibleMinY = geometry.visibleRect.minY
@@ -231,6 +249,50 @@ private struct LineListScrollState: Equatable {
         visibleHeight = geometry.visibleRect.height
         distanceFromBottom = geometry.contentSize.height - geometry.visibleRect.maxY
         contentHeight = geometry.contentSize.height
+    }
+}
+
+enum ViewportLoadDirection {
+    case previous
+    case next
+}
+
+struct ViewportLoadGate {
+    private var activeDirection: ViewportLoadDirection?
+    private var lastLoadTime: Date?
+    private let cooldown: TimeInterval
+    private let resetDistanceMultiplier: CGFloat
+
+    init(cooldown: TimeInterval = 0.35, resetDistanceMultiplier: CGFloat = 1.5) {
+        self.cooldown = cooldown
+        self.resetDistanceMultiplier = resetDistanceMultiplier
+    }
+
+    mutating func update(for state: LineListScrollState, preloadDistance: CGFloat) {
+        guard let activeDirection else { return }
+        let resetDistance = preloadDistance * resetDistanceMultiplier
+
+        switch activeDirection {
+        case .previous:
+            if state.visibleMinY > resetDistance {
+                self.activeDirection = nil
+            }
+        case .next:
+            if state.distanceFromBottom > resetDistance {
+                self.activeDirection = nil
+            }
+        }
+    }
+
+    mutating func shouldStartLoad(direction: ViewportLoadDirection, now: Date) -> Bool {
+        guard activeDirection != direction else { return false }
+        if let lastLoadTime, now.timeIntervalSince(lastLoadTime) < cooldown {
+            return false
+        }
+
+        activeDirection = direction
+        lastLoadTime = now
+        return true
     }
 }
 

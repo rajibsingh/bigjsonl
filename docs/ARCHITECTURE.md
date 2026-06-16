@@ -271,6 +271,9 @@ class BigJSONLDocument: ReferenceFileDocument {
   the user reaches the loaded edge, preserving an estimated center line as the
   scroll anchor. Existing rows stay rendered while the next window is prepared,
   avoiding visible loading interruptions during normal line-list scrolling.
+- A small viewport-load gate coalesces repeated edge triggers from trackpad or
+  wheel momentum so a single gesture cannot queue several sequential window
+  shifts while the user is trying to read the newly loaded rows.
 - Each line is rendered as plain monospace text; viewport rows do not build an
   unused syntax token stream
 - Viewport rows store bounded display previews instead of full line text; the
