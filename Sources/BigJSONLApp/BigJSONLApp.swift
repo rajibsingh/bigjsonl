@@ -11,18 +11,26 @@ struct BigJSONLApp: App {
     var body: some Scene {
         WindowGroup {
             VStack(spacing: 0) {
-                TabBarView(
-                    tabs: tabs,
-                    selectedID: selectedTabID,
-                    onSelect: { selectedTabID = $0 },
-                    onClose: closeTab,
-                    onNew: newTab
-                )
+                HStack(spacing: 0) {
+                    TabBarView(
+                        tabs: tabs,
+                        selectedID: selectedTabID,
+                        onSelect: { selectedTabID = $0 },
+                        onClose: closeTab,
+                        onNew: newTab
+                    )
+                    searchToolbar
+                }
 
                 if let tab = selectedTab {
-                    if let document = tab.document {
-                        ContentView(document: document, searchQuery: $searchQuery)
-                            .id(tab.id)
+                    if let document = tab.document, let viewModel = tab.viewModel {
+                        ContentView(
+                            document: document,
+                            viewModel: viewModel,
+                            searchQuery: searchQuery,
+                            onClearSearch: clearSearch
+                        )
+                        .id(tab.id)
                     } else {
                         welcomeView
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -30,6 +38,11 @@ struct BigJSONLApp: App {
                 }
             }
             .frame(minWidth: 600, minHeight: 400)
+            .onChange(of: selectedTabID) {
+                if !searchQuery.isEmpty {
+                    selectedTab?.viewModel?.performSearch(query: searchQuery)
+                }
+            }
             .onAppear {
                 NSApplication.shared.setActivationPolicy(.regular)
                 NSApplication.shared.activate()
@@ -105,6 +118,46 @@ struct BigJSONLApp: App {
         if let tab = selectedTab {
             tab.open(url: url)
         }
+    }
+
+    // MARK: - Search
+
+    private var searchToolbar: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+            TextField("Search pattern...", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .frame(width: 150)
+                .onSubmit {
+                    selectedTab?.viewModel?.performSearch(query: searchQuery)
+                }
+            if selectedTab?.viewModel?.isSearching == true {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .frame(width: 12)
+            } else if !(selectedTab?.viewModel?.searchResults.isEmpty ?? true) || !searchQuery.isEmpty {
+                Button {
+                    clearSearch()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func clearSearch() {
+        searchQuery = ""
+        selectedTab?.viewModel?.clearSearch()
     }
 
     // MARK: - Welcome screen

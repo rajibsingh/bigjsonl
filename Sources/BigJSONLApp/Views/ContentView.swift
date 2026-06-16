@@ -3,15 +3,17 @@ import BigJSONLCore
 
 struct ContentView: View {
     let document: BigJSONLDocument
-    @Binding var searchQuery: String
-    @State private var viewModel: DocumentViewModel
+    let viewModel: DocumentViewModel
+    let searchQuery: String
+    let onClearSearch: () -> Void
     @State private var scrollPosition: ScrollPosition = .init()
     @State private var selectedLine: UInt64?
 
-    init(document: BigJSONLDocument, searchQuery: Binding<String>) {
+    init(document: BigJSONLDocument, viewModel: DocumentViewModel, searchQuery: String, onClearSearch: @escaping () -> Void) {
         self.document = document
-        self._searchQuery = searchQuery
-        self._viewModel = State(initialValue: DocumentViewModel(document: document))
+        self.viewModel = viewModel
+        self.searchQuery = searchQuery
+        self.onClearSearch = onClearSearch
     }
 
     var body: some View {
@@ -25,11 +27,6 @@ struct ContentView: View {
                 }
             }
             .navigationTitle(document.url.lastPathComponent)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    searchToolbarItem
-                }
-            }
         } detail: {
             // Inspector sidebar
             if let line = selectedLine {
@@ -57,6 +54,17 @@ struct ContentView: View {
                 viewModel.requestedScrollLine = nil
             }
         }
+    }
+
+    /// Called by BigJSONLApp when the user submits a search query.
+    func performSearch() {
+        viewModel.performSearch(query: searchQuery)
+    }
+
+    /// Called by BigJSONLApp when the user clears the search.
+    func clearSearch() {
+        viewModel.clearSearch()
+        selectedLine = nil
     }
 
     // MARK: - Line list pane
@@ -140,38 +148,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Search toolbar
-
-    private var searchToolbarItem: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("Search pattern...", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .frame(width: 150)
-                .onSubmit {
-                    viewModel.performSearch(query: searchQuery)
-                }
-            if viewModel.isSearching {
-                ProgressView()
-                    .scaleEffect(0.5)
-                    .frame(width: 12)
-            } else if !viewModel.searchResults.isEmpty || !searchQuery.isEmpty {
-                Button {
-                    viewModel.clearSearch()
-                    searchQuery = ""
-                    selectedLine = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(6)
-        .background(.quaternary.opacity(0.3))
-        .clipShape(.rect(cornerRadius: 6))
-    }
 
     private func loadWindowIfNeeded(for geometry: ScrollGeometry) {
         let threshold: CGFloat = 24

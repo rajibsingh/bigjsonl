@@ -11,6 +11,7 @@ final class TabItem: Identifiable {
     let id: UUID
     var url: URL?
     var document: BigJSONLDocument?
+    var viewModel: DocumentViewModel?
 
     var title: String {
         url?.lastPathComponent ?? "New Tab"
@@ -19,12 +20,18 @@ final class TabItem: Identifiable {
     init(url: URL? = nil) {
         self.id = UUID()
         self.url = url
-        self.document = url.map { BigJSONLDocument(url: $0) }
+        if let url {
+            let doc = BigJSONLDocument(url: url)
+            self.document = doc
+            self.viewModel = DocumentViewModel(document: doc)
+        }
     }
 
     func open(url: URL) {
         self.url?.stopAccessingSecurityScopedResource()
         self.url = url
-        self.document = BigJSONLDocument(url: url)
+        let doc = BigJSONLDocument(url: url)
+        self.document = doc
+        self.viewModel = DocumentViewModel(document: doc)
     }
 }
