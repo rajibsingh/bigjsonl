@@ -3,7 +3,7 @@ import BigJSONLCore
 import Foundation
 
 @main
-struct BigJSONL: ParsableCommand {
+struct BigJSONL: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bigjsonl",
         abstract: "View large JSONL files, one line at a time.",
@@ -52,7 +52,7 @@ struct BigJSONL: ParsableCommand {
         }
     }
 
-    mutating func run() throws {
+    mutating func run() async throws {
         let url = URL(fileURLWithPath: file)
         guard FileManager.default.isReadableFile(atPath: url.path) else {
             throw ValidationError("File not found or not readable: \(file)")
@@ -91,7 +91,7 @@ struct BigJSONL: ParsableCommand {
         }
 
         // Render the viewport
-        renderWindow(
+        try await renderWindow(
             fromLine: startLine,
             count: UInt64(windowLines),
             mappedFile: mappedFile,
@@ -123,7 +123,7 @@ struct BigJSONL: ParsableCommand {
         count: UInt64,
         mappedFile: MappedFile,
         index: inout LineOffsetIndex
-    ) {
+    ) async throws {
         // Ensure the starting line is indexed
         let (targetLine, overflowed) = start.addingReportingOverflow(count)
         guard !overflowed else { return }
@@ -131,41 +131,65 @@ struct BigJSONL: ParsableCommand {
 
         let maxLine = index.lineCount
 
+        // Find the contiguous run of indexable lines in the window up front,
+        // since the index may run out before `count` lines are reached.
+        var lineNumbers: [UInt64] = []
         for lineNum in start..<min(start + count, maxLine + 1) {
-            guard let offset = index.offsetForLine(lineNum) else { break }
-            guard let range = index.byteRangeForLine(lineNum, fileSize: mappedFile.size) else {
-                break
-            }
+            guard index.offsetForLine(lineNum) != nil,
+                  index.byteRangeForLine(lineNum, fileSize: mappedFile.size) != nil else { break }
+            lineNumbers.append(lineNum)
+        }
+        guard !lineNumbers.isEmpty else { return }
 
-            // Read the raw bytes for this line
-            let lineLength = range.upperBound - range.lowerBound
-            let data = mappedFile.read(offset: offset, length: lineLength)
+        // Reading bytes, decoding, and tokenizing each line is independent
+        // and CPU-bound, so do it concurrently and print in line-number order
+        // afterward.
+        let snapshotIndex = index
+        let noColor = noColor
+        var rendered = [String?](repeating: nil, count: lineNumbers.count)
+        try await withThrowingTaskGroup(of: (Int, String?).self) { group in
+            for (i, lineNum) in lineNumbers.enumerated() {
+                group.addTask {
+                    guard let offset = snapshotIndex.offsetForLine(lineNum),
+                          let range = snapshotIndex.byteRangeForLine(lineNum, fileSize: mappedFile.size) else {
+                        return (i, nil)
+                    }
 
-            // Convert DispatchData to String
-            let lineText: String
-            if data.isEmpty {
-                lineText = ""
-            } else {
-                let rawData = Data(data)
-                if let str = String(data: rawData, encoding: .utf8) {
-                    // Trim trailing newline/carriage return for display
-                    lineText = str.trimmingCharacters(in: ["\n", "\r"])
-                } else {
-                    lineText = "<invalid UTF-8>"
+                    let lineLength = range.upperBound - range.lowerBound
+                    let data = mappedFile.read(offset: offset, length: lineLength)
+
+                    let lineText: String
+                    if data.isEmpty {
+                        lineText = ""
+                    } else {
+                        let rawData = Data(data)
+                        if let str = String(data: rawData, encoding: .utf8) {
+                            lineText = str.trimmingCharacters(in: ["\n", "\r"])
+                        } else {
+                            lineText = "<invalid UTF-8>"
+                        }
+                    }
+
+                    let (_, tokens) = JSONTokenizer.tokenize(lineText)
+
+                    let rendered = ANSIRenderer.renderLine(
+                        lineText: lineText,
+                        tokens: tokens,
+                        lineNumber: lineNum,
+                        noColor: noColor
+                    )
+                    return (i, rendered)
                 }
             }
+            for try await (i, line) in group {
+                rendered[i] = line
+            }
+        }
 
-            // Tokenize
-            let (isValid, tokens) = JSONTokenizer.tokenize(lineText)
-
-            // Render
-            let rendered = ANSIRenderer.renderLine(
-                lineText: lineText,
-                tokens: isValid ? tokens : tokens,
-                lineNumber: lineNum,
-                noColor: noColor
-            )
-            print(rendered)
+        for line in rendered {
+            if let line {
+                print(line)
+            }
         }
     }
 }

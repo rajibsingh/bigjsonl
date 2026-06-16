@@ -224,6 +224,10 @@ struct SearchResult {
 USAGE: bigjsonl <file> [--line <n>] [--search <pattern>] [--no-color]
 ```
 
+- `run()` is `async` (`AsyncParsableCommand`); `renderWindow` reads, decodes, and
+  tokenizes each line in the requested window concurrently via a `TaskGroup`
+  (each line is independent and CPU-bound), then prints results in
+  line-number order
 - Renders lines to stdout with ANSI color codes derived from `TokenType`
 - Shows a line-number gutter (e.g., ` 42 │ { ... }`)
 - If `--search` is provided, opens to the first match and highlights matches inline
@@ -357,6 +361,7 @@ class BigJSONLDocument: ReferenceFileDocument {
 | 2026-06-16 | `O_RDONLY` + `MAP_PRIVATE` mmap — no write lock held | Files being actively written by another process can be safely viewed. New content appended after open is not visible until ⌘R reload, which replaces the mapping entirely. |
 | 2026-06-16 | Viewport preparation and inspector formatting are cancellable background work | Keeps scrolling, resizing, tab changes, and rapid line selection responsive for content-heavy records. |
 | 2026-06-16 | Viewport line reads parallelized via `TaskGroup` within the detached preparation task | Each line's mmap read, decode, and JSON validity check is independent and CPU-bound; `MappedFile` (`@unchecked Sendable`, read-only mmap) and `LineOffsetIndex` (`Sendable` value type) are safe to read concurrently, so splitting the window across cores speeds up large windows without added data-race risk. |
+| 2026-06-16 | CLI `renderWindow` tokenizes its line window via `TaskGroup`, `BigJSONL` became `AsyncParsableCommand` | Tokenization is the expensive, independent per-line step; printing stays strictly ordered and sequential after the parallel pass so stdout output is unaffected. `DispatchQueue.concurrentPerform` was tried first but triggers Swift 6 strict-concurrency warnings on mutable captures; `TaskGroup` matches the pattern already used for viewport loading and has no such warnings. |
 
 ## Distribution
 
