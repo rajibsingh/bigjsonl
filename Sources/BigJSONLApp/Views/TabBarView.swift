@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct TabBarView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let tabs: [TabItem]
     let selectedID: UUID
     let onSelect: (UUID) -> Void
@@ -49,7 +51,7 @@ struct TabBarView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(tab.title)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? .primary : .secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -60,7 +62,7 @@ struct TabBarView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(isSelected ? .secondary : .tertiary)
                         .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)
@@ -68,8 +70,37 @@ struct TabBarView: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 32)
-            .background(isSelected ? Color(nsColor: .windowBackgroundColor) : .clear)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(selectedTabFill)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 4)
+                }
+            }
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(Color.accentColor.opacity(colorScheme == .dark ? 0.55 : 0.35), lineWidth: 1)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 4)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .padding(.horizontal, 12)
+                }
+            }
         }
         .buttonStyle(.plain)
+    }
+
+    private var selectedTabFill: Color {
+        colorScheme == .dark
+            ? Color.accentColor.opacity(0.24)
+            : Color.accentColor.opacity(0.13)
     }
 }
